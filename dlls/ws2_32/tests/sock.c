@@ -6937,6 +6937,58 @@ static void test_connect_events(struct event_test_ctx *ctx)
     closesocket(server);
 
     closesocket(listener);
+
+    /* Test events getting cleared on second connect after connection got refused.
+     * w10pro64 sometimes takes over 2 seconds for an error to be reported,
+     * so make the test interactive-only. */
+    //if (winetest_interactive) //disabled to run with gitlab, until leaving draft state
+    {
+        struct sockaddr_in invalid_addr;
+
+        client = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        ok(client != -1, "failed to create socket, error %u\n", WSAGetLastError());
+
+        select_events(ctx, client, FD_ACCEPT | FD_CLOSE | FD_CONNECT | FD_OOB | FD_READ | FD_WRITE);
+        check_events(ctx, 0, 0, 0);
+        check_events(ctx, 0, 0, 0);
+
+        memset( &invalid_addr, 0, sizeof(invalid_addr) );
+        invalid_addr.sin_family = AF_INET;
+        invalid_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        invalid_addr.sin_port = htons(255);
+
+        /* attempt to connect to closed port */
+        ret = connect(client, (struct sockaddr *)&invalid_addr, sizeof(invalid_addr));
+        ok(ret == SOCKET_ERROR, "expected SOCKET_ERROR, got %d\n", ret);
+        check_events(ctx, MAKELONG(FD_CONNECT, WSAECONNREFUSED), 0, 4000);
+        check_events(ctx, 0, 0, 0);
+
+        /* try again to connect, should behave the same */
+        ret = connect(client, (struct sockaddr *)&invalid_addr, sizeof(invalid_addr));
+        ok(ret == SOCKET_ERROR, "expected SOCKET_ERROR, got %d\n", ret);
+        check_events(ctx, MAKELONG(FD_CONNECT, WSAECONNREFUSED), 0, 4000);
+        check_events(ctx, 0, 0, 0);
+
+        ret = connect(client, (struct sockaddr *)&invalid_addr, sizeof(invalid_addr));
+        ok(ret == SOCKET_ERROR, "expected SOCKET_ERROR, got %d\n", ret);
+        /* try with invalid size, after event set */
+        ret = connect(client, (struct sockaddr *)&invalid_addr, 1);
+        ok(ret == SOCKET_ERROR, "expected SOCKET_ERROR, got %d\n", ret);
+        check_events(ctx, MAKELONG(FD_CONNECT, WSAECONNREFUSED), 0, 4000);
+        check_events(ctx, 0, 0, 0);
+
+        ret = connect(client, (struct sockaddr *)&invalid_addr, sizeof(invalid_addr));
+        ok(ret == SOCKET_ERROR, "expected SOCKET_ERROR, got %d\n", ret);
+        /* try with invalid sin_family, after event set */
+        invalid_addr.sin_family = 0xf1;
+        ret = connect(client, (struct sockaddr *)&invalid_addr, sizeof(invalid_addr));
+        ok(ret == SOCKET_ERROR, "expected SOCKET_ERROR, got %d\n", ret);
+        check_events(ctx, MAKELONG(FD_CONNECT, WSAECONNREFUSED), 0, 4000);
+        check_events(ctx, 0, 0, 0);
+        invalid_addr.sin_family = AF_INET;
+
+        closesocket(client);
+    }
 }
 
 /* perform a blocking recv() even on a nonblocking socket */

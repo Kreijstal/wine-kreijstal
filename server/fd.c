@@ -1979,7 +1979,8 @@ struct fd *open_fd( struct fd *root, const char *name, struct unicode_str nt_nam
         flags &= ~(O_CREAT | O_EXCL | O_TRUNC);
     }
 
-    if ((access & FILE_UNIX_WRITE_ACCESS) && !(options & FILE_DIRECTORY_FILE))
+    if ((access & (FILE_WRITE_DATA|FILE_APPEND_DATA|FILE_WRITE_ATTRIBUTES|FILE_WRITE_EA)) &&
+        !(options & FILE_DIRECTORY_FILE))
     {
         if (access & FILE_UNIX_READ_ACCESS) rw_mode = O_RDWR;
         else rw_mode = O_WRONLY;

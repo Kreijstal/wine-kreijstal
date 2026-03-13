@@ -6,5 +6,6 @@ VER_PRODUCTVERSION = 10,0,14393,0
 SOURCES = \
 	dcomp_private_iface.idl \
 	device.c \
+	surface.c \
 	target.c \
 	visual.c

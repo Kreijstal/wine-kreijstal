@@ -1,6 +1,8 @@
-MODULE    = dcomp.dll
+MODULE   = dcomp.dll
+IMPORTS  = user32
 
 VER_PRODUCTVERSION = 10,0,14393,0
 
 SOURCES = \
-	device.c
+	device.c \
+	target.c

@@ -17,6 +17,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 #define COBJMACROS
+#define WINOLEAUTAPI
 #include "objbase.h"
 #include "ctxtcall.h"
 #include "comsvcs.h"
@@ -31,7 +32,25 @@
 
 #include "wine/debug.h"
 
+HRESULT create_restricted_error_info(HRESULT hr, const WCHAR *description,
+        const WCHAR *restricted_description, const WCHAR *capability_sid,
+        const WCHAR *reference, IRestrictedErrorInfo **ret);
+
+HRESULT capture_restricted_error_context(IRestrictedErrorInfo *iface, HRESULT hr);
+
+HRESULT copy_restricted_error_context(IRestrictedErrorInfo *dst_iface, IRestrictedErrorInfo *src_iface);
+
+HRESULT WINAPI RoGetMatchingRestrictedErrorInfo(HRESULT error, IRestrictedErrorInfo **info);
+
 WINE_DEFAULT_DEBUG_CHANNEL(combase);
+
+static UINT32 ro_error_reporting_flags = RO_ERROR_REPORTING_USESETERRORINFO;
+
+#define RO_ERROR_REPORTING_VALID_MASK \
+    (RO_ERROR_REPORTING_SUPPRESSEXCEPTIONS | \
+    RO_ERROR_REPORTING_FORCEEXCEPTIONS | \
+    RO_ERROR_REPORTING_USESETERRORINFO | \
+    RO_ERROR_REPORTING_SUPPRESSSETERRORINFO)
 
 struct activatable_class_data
 {
@@ -41,6 +60,86 @@ struct activatable_class_data
     DWORD module_offset;
     DWORD threading_model;
 };
+
+static WCHAR *duplicate_bounded_message(const WCHAR *message, UINT cchMax)
+{
+    UINT len = 0, limit = 511;
+    WCHAR *copy;
+
+    if (!message)
+        return NULL;
+
+    if (!cchMax)
+    {
+        while (len < limit && message[len])
+            len++;
+    }
+    else
+    {
+        while (len < cchMax && len < limit && message[len])
+            len++;
+    }
+
+    if (!len)
+        return NULL;
+
+    copy = malloc((len + 1) * sizeof(*copy));
+    if (!copy)
+        return NULL;
+
+    memcpy(copy, message, len * sizeof(*copy));
+    copy[len] = 0;
+    return copy;
+}
+
+static BOOL is_current_thread_com_initialized(void)
+{
+    struct tlsdata *tlsdata = NtCurrentTeb()->ReservedForOle;
+
+    return tlsdata && (tlsdata->inits || tlsdata->ole_inits);
+}
+
+static BOOL should_use_seterrorinfo(void)
+{
+    if (ro_error_reporting_flags & RO_ERROR_REPORTING_SUPPRESSSETERRORINFO)
+        return FALSE;
+    if (!(ro_error_reporting_flags & RO_ERROR_REPORTING_USESETERRORINFO))
+        return FALSE;
+    if (!is_current_thread_com_initialized())
+        return FALSE;
+
+    return TRUE;
+}
+
+static WCHAR *get_generic_error_message(HRESULT error)
+{
+    WCHAR *system_message = NULL, *copy;
+    DWORD len, flags = FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
+            FORMAT_MESSAGE_IGNORE_INSERTS;
+
+    len = FormatMessageW(flags, NULL, error, 0, (WCHAR *)&system_message, 0, NULL);
+    if (!len)
+        len = FormatMessageW(flags, NULL, E_FAIL, 0, (WCHAR *)&system_message, 0, NULL);
+
+    if (!len || !system_message)
+        return wcsdup(L"Unspecified error");
+
+    while (len && (system_message[len - 1] == '\r' || system_message[len - 1] == '\n'))
+        system_message[--len] = 0;
+
+    if (len > 511)
+        len = 511;
+
+    copy = malloc((len + 1) * sizeof(*copy));
+    if (copy)
+    {
+        memcpy(copy, system_message, len * sizeof(*copy));
+        copy[len] = 0;
+    }
+
+    LocalFree(system_message);
+    return copy;
+}
 
 static HRESULT get_library_for_classid(const WCHAR *classid, WCHAR **out)
 {
@@ -539,8 +638,36 @@ HRESULT WINAPI RoRegisterActivationFactories(HSTRING *classes, PFNGETACTIVATIONF
  */
 HRESULT WINAPI GetRestrictedErrorInfo(IRestrictedErrorInfo **info)
 {
-    FIXME( "(%p)\n", info );
-    return E_NOTIMPL;
+    IErrorInfo *error_info = NULL;
+    HRESULT hr;
+
+    TRACE("(%p)\n", info);
+
+    if (!info) return E_POINTER;
+    *info = NULL;
+
+    hr = GetErrorInfo(0, &error_info);
+    if (hr == S_FALSE)
+        return S_FALSE;
+    if (FAILED(hr))
+    {
+        WARN("GetErrorInfo failed, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    if (!error_info)
+        return S_FALSE;
+
+    hr = IErrorInfo_QueryInterface(error_info, &IID_IRestrictedErrorInfo, (void **)info);
+    IErrorInfo_Release(error_info);
+
+    if (FAILED(hr))
+    {
+        TRACE("Current error object does not support IRestrictedErrorInfo.\n");
+        return S_FALSE;
+    }
+
+    return S_OK;
 }
 
 /***********************************************************************
@@ -548,8 +675,107 @@ HRESULT WINAPI GetRestrictedErrorInfo(IRestrictedErrorInfo **info)
  */
 HRESULT WINAPI SetRestrictedErrorInfo(IRestrictedErrorInfo *info)
 {
-    FIXME( "(%p)\n", info );
-    return E_NOTIMPL;
+    IErrorInfo *error_info = NULL;
+    HRESULT hr;
+
+    TRACE("(%p)\n", info);
+
+    if (!info)
+        return SetErrorInfo(0, NULL);
+
+    hr = IRestrictedErrorInfo_QueryInterface(info, &IID_IErrorInfo, (void **)&error_info);
+    if (FAILED(hr))
+    {
+        WARN("Restricted error object does not expose IErrorInfo, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    hr = SetErrorInfo(0, error_info);
+    IErrorInfo_Release(error_info);
+
+    return hr;
+}
+
+/***********************************************************************
+ * RoCaptureErrorContext (combase.@)
+ *
+ * Captures the current restricted error context for the specified HRESULT.
+ *
+ * Wine stores the captured context in the restricted error object,
+ * including a stack backtrace. Native Windows Error Reporting (WER)
+ * integration is not implemented yet.
+ */
+HRESULT WINAPI RoCaptureErrorContext(HRESULT error)
+{
+    IRestrictedErrorInfo *info = NULL;
+    HRESULT hr, stored_error = S_OK;
+
+    TRACE("%#lx.\n", error);
+
+    if (!FAILED(error))
+        return S_OK;
+
+    hr = GetRestrictedErrorInfo(&info);
+    if (FAILED(hr) && hr != S_FALSE)
+    {
+        WARN("GetRestrictedErrorInfo failed, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    if (info)
+    {
+        hr = IRestrictedErrorInfo_GetErrorDetails(info, NULL, &stored_error, NULL, NULL);
+        if (FAILED(hr) || stored_error != error)
+        {
+            IRestrictedErrorInfo_Release(info);
+            info = NULL;
+        }
+    }
+
+    if (!info)
+    {
+        hr = create_restricted_error_info(error, NULL, NULL, NULL, NULL, &info);
+        if (FAILED(hr))
+        {
+            WARN("create_restricted_error_info failed, hr %#lx.\n", hr);
+            return hr;
+        }
+    }
+
+    hr = capture_restricted_error_context(info, error);
+    if (FAILED(hr))
+    {
+        WARN("capture_restricted_error_context failed, hr %#lx.\n", hr);
+        IRestrictedErrorInfo_Release(info);
+        return hr;
+    }
+
+    hr = SetRestrictedErrorInfo(info);
+    IRestrictedErrorInfo_Release(info);
+
+    return hr;
+}
+
+/***********************************************************************
+ *      RoClearError (combase.@)
+ *
+ *  Clears the current restricted error info for the calling thread.
+ */
+void WINAPI RoClearError(void)
+{
+    struct tlsdata *tlsdata = NtCurrentTeb()->ReservedForOle;
+    IErrorInfo *error_info;
+
+    TRACE("()\n");
+
+    if (!tlsdata)
+        return;
+
+    error_info = tlsdata->errorinfo;
+    tlsdata->errorinfo = NULL;
+
+    if (error_info)
+        IErrorInfo_Release(error_info);
 }
 
 /***********************************************************************
@@ -566,8 +792,15 @@ BOOL WINAPI RoOriginateLanguageException(HRESULT error, HSTRING message, IUnknow
  */
 BOOL WINAPI RoOriginateError(HRESULT error, HSTRING message)
 {
-    FIXME("%#lx, %s: stub\n", error, debugstr_hstring(message));
-    return FALSE;
+    const WCHAR *str = NULL;
+    UINT32 len = 0;
+
+    TRACE("%#lx, %s.\n", error, debugstr_hstring(message));
+
+    if (message)
+        str = WindowsGetStringRawBuffer(message, &len);
+
+    return RoOriginateErrorW(error, len, str);
 }
 
 /***********************************************************************
@@ -575,16 +808,89 @@ BOOL WINAPI RoOriginateError(HRESULT error, HSTRING message)
  */
 BOOL WINAPI RoOriginateErrorW(HRESULT error, UINT max_len, const WCHAR *message)
 {
-    FIXME("%#lx, %u, %p: stub\n", error, max_len, message);
-    return FALSE;
+    IRestrictedErrorInfo *info = NULL;
+    WCHAR *text = NULL;
+    HRESULT hr;
+
+    TRACE("%#lx, %u, %s.\n", error, max_len, debugstr_w(message));
+
+    if (!FAILED(error))
+        return FALSE;
+
+    if (message)
+        text = duplicate_bounded_message(message, max_len);
+    else
+        text = get_generic_error_message(error);
+
+    if (message && !text)
+        return FALSE;
+
+    /* The call still succeeds even if we don't attach the error object
+     * to the COM channel. */
+    if (!should_use_seterrorinfo())
+    {
+        free(text);
+        return TRUE;
+    }
+
+    hr = create_restricted_error_info(error, text, NULL, NULL, NULL, &info);
+    free(text);
+    if (FAILED(hr))
+    {
+        WARN("create_restricted_error_info failed, hr %#lx.\n", hr);
+        return FALSE;
+    }
+
+    hr = SetRestrictedErrorInfo(info);
+    IRestrictedErrorInfo_Release(info);
+
+    return SUCCEEDED(hr);
 }
 
 /***********************************************************************
- *      RoReportUnhandledError (combase.@)
+ * RoReportUnhandledError (combase.@)
+ *
+ * Reports an unhandled error by updating the COM error channel state
+ * for the current thread and logging the error details.
  */
 HRESULT WINAPI RoReportUnhandledError(IRestrictedErrorInfo *info)
 {
-    FIXME("(%p): stub\n", info);
+    HRESULT hr;
+    BSTR description = NULL, restricted = NULL, capability = NULL;
+    HRESULT orig_error = S_OK;
+
+    TRACE("(%p)\n", info);
+
+    if (!info)
+        return E_POINTER;
+
+    hr = SetRestrictedErrorInfo(info);
+    if (FAILED(hr))
+    {
+        WARN("SetRestrictedErrorInfo failed, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    if (SUCCEEDED(IRestrictedErrorInfo_GetErrorDetails(info, &description, &orig_error,
+            &restricted, &capability)))
+    {
+        WARN("Unhandled WinRT error: hr %#lx, desc %s, restricted %s, capability %s\n",
+             orig_error, debugstr_w(description), debugstr_w(restricted),
+             debugstr_w(capability));
+
+        SysFreeString(description);
+        SysFreeString(restricted);
+        SysFreeString(capability);
+    }
+    else
+    {
+        WARN("Unhandled WinRT error reported, but failed to get details.\n");
+    }
+
+    /* Native Windows triggers the Global Error Handler here.
+     * Wine currently preserves the reported restricted error object
+     * on the current thread for later observation.
+     */
     return S_OK;
 }
 
@@ -593,7 +899,210 @@ HRESULT WINAPI RoReportUnhandledError(IRestrictedErrorInfo *info)
  */
 HRESULT WINAPI RoSetErrorReportingFlags(UINT32 flags)
 {
-    FIXME("(%08x): stub\n", flags);
+    TRACE("(%08x)\n", flags);
+
+    if (flags & ~RO_ERROR_REPORTING_VALID_MASK)
+        return E_INVALIDARG;
+
+    ro_error_reporting_flags = flags;
+    return S_OK;
+}
+
+/***********************************************************************
+ *      RoTransformErrorW (combase.@)
+ *
+ *  Transforms the current restricted error into a new one with a different
+ *  HRESULT and (optionally) a new user-visible message.
+ */
+
+BOOL WINAPI RoTransformErrorW(HRESULT old_error, HRESULT new_error,
+                              UINT max_len, const WCHAR *message)
+{
+    IRestrictedErrorInfo *old_info = NULL, *new_info = NULL;
+    BSTR desc = NULL, restricted_desc = NULL, cap_sid = NULL, reference = NULL;
+    HRESULT hr, stored_hr = S_OK;
+    WCHAR *bounded_message = NULL;
+    const WCHAR *new_desc = NULL, *new_restricted_desc = NULL;
+
+    TRACE("%#lx, %#lx, %u, %s.\n", old_error, new_error, max_len, debugstr_w(message));
+
+    if (old_error == new_error)
+        return FALSE;
+    if (!FAILED(old_error) && !FAILED(new_error))
+        return FALSE;
+
+    if (message)
+    {
+        bounded_message = duplicate_bounded_message(message, max_len);
+        if (!bounded_message)
+            return FALSE;
+    }
+    else
+    {
+        bounded_message = get_generic_error_message(new_error);
+        if (!bounded_message)
+            return FALSE;
+    }
+
+    /* As with RoOriginateErrorW(), the call can still succeed even if
+     * we don't attach the transformed error object to the COM channel. */
+    if (!should_use_seterrorinfo())
+    {
+        free(bounded_message);
+        return TRUE;
+    }
+
+    hr = RoGetMatchingRestrictedErrorInfo(old_error, &old_info);
+    if (FAILED(hr))
+    {
+        WARN("RoGetMatchingRestrictedErrorInfo failed, hr %#lx.\n", hr);
+        free(bounded_message);
+        return FALSE;
+    }
+
+    if (old_info)
+    {
+        hr = IRestrictedErrorInfo_GetErrorDetails(old_info, &desc, &stored_hr,
+                                                  &restricted_desc, &cap_sid);
+        if (FAILED(hr))
+        {
+            desc = NULL;
+            restricted_desc = NULL;
+            cap_sid = NULL;
+        }
+
+        hr = IRestrictedErrorInfo_GetReference(old_info, &reference);
+        if (FAILED(hr))
+            reference = NULL;
+    }
+
+    new_desc = bounded_message;
+    new_restricted_desc = desc ? desc : restricted_desc;
+
+    hr = create_restricted_error_info(new_error, new_desc, new_restricted_desc,
+                                      cap_sid, reference, &new_info);
+    if (FAILED(hr))
+    {
+        WARN("create_restricted_error_info failed, hr %#lx.\n", hr);
+        goto done;
+    }
+
+    if (old_info)
+    {
+        hr = copy_restricted_error_context(new_info, old_info);
+        if (FAILED(hr))
+        {
+            WARN("copy_restricted_error_context failed, hr %#lx.\n", hr);
+            goto done;
+        }
+    }
+
+    hr = SetRestrictedErrorInfo(new_info);
+    if (FAILED(hr))
+    {
+        WARN("SetRestrictedErrorInfo failed, hr %#lx.\n", hr);
+        goto done;
+    }
+
+done:
+    if (new_info)
+        IRestrictedErrorInfo_Release(new_info);
+    if (old_info)
+        IRestrictedErrorInfo_Release(old_info);
+    if (desc)
+        SysFreeString(desc);
+    if (restricted_desc)
+        SysFreeString(restricted_desc);
+    if (cap_sid)
+        SysFreeString(cap_sid);
+    if (reference)
+        SysFreeString(reference);
+    free(bounded_message);
+
+    return SUCCEEDED(hr);
+}
+
+/***********************************************************************
+ *      RoTransformError (combase.@)
+ */
+BOOL WINAPI RoTransformError(HRESULT old_error, HRESULT new_error, HSTRING message)
+{
+    const WCHAR *msg = NULL;
+    UINT32 len = 0;
+
+    TRACE("%#lx, %#lx, %s.\n", old_error, new_error, debugstr_hstring(message));
+
+    if (message)
+        msg = WindowsGetStringRawBuffer(message, &len);
+
+    return RoTransformErrorW(old_error, new_error, len, msg);
+}
+
+/***********************************************************************
+ *      RoGetMatchingRestrictedErrorInfo (combase.@)
+ *
+ *  Ensures that there is a restricted error info whose HRESULT matches
+ *  the given error code, and returns it.
+ */
+HRESULT WINAPI RoGetMatchingRestrictedErrorInfo(HRESULT error, IRestrictedErrorInfo **info)
+{
+    IRestrictedErrorInfo *current = NULL;
+    HRESULT hr, stored_hr = S_OK;
+
+    TRACE("%#lx, %p.\n", error, info);
+
+    if (!info) return E_POINTER;
+    *info = NULL;
+
+    if (!FAILED(error))
+        return S_FALSE;
+
+    hr = GetRestrictedErrorInfo(&current);
+    if (FAILED(hr) && hr != S_FALSE)
+    {
+        WARN("GetRestrictedErrorInfo failed, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    if (current)
+    {
+        hr = IRestrictedErrorInfo_GetErrorDetails(current, NULL, &stored_hr, NULL, NULL);
+        if (SUCCEEDED(hr) && stored_hr == error)
+        {
+            hr = SetRestrictedErrorInfo(current);
+            if (FAILED(hr))
+            {
+                WARN("SetRestrictedErrorInfo failed, hr %#lx.\n", hr);
+                IRestrictedErrorInfo_Release(current);
+                return hr;
+            }
+
+            IRestrictedErrorInfo_AddRef(current);
+            *info = current;
+            IRestrictedErrorInfo_Release(current);
+            return S_OK;
+        }
+
+        IRestrictedErrorInfo_Release(current);
+        current = NULL;
+    }
+
+    hr = create_restricted_error_info(error, NULL, NULL, NULL, NULL, &current);
+    if (FAILED(hr))
+    {
+        WARN("create_restricted_error_info failed, hr %#lx.\n", hr);
+        return hr;
+    }
+
+    hr = SetRestrictedErrorInfo(current);
+    if (FAILED(hr))
+    {
+        WARN("SetRestrictedErrorInfo failed, hr %#lx.\n", hr);
+        IRestrictedErrorInfo_Release(current);
+        return hr;
+    }
+
+    *info = current;
     return S_OK;
 }
 
@@ -602,12 +1111,12 @@ HRESULT WINAPI RoSetErrorReportingFlags(UINT32 flags)
  */
 HRESULT WINAPI RoGetErrorReportingFlags(UINT32 *flags)
 {
-    FIXME("(%p): stub\n", flags);
+    TRACE("(%p)\n", flags);
 
     if (!flags)
         return E_POINTER;
 
-    *flags = RO_ERROR_REPORTING_USESETERRORINFO;
+    *flags = ro_error_reporting_flags;
     return S_OK;
 }
 

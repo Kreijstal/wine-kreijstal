@@ -27,6 +27,9 @@
 
 #include "wine/debug.h"
 
+#include "roerrorapi.h"
+
+
 WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
 struct error_info
@@ -390,6 +393,311 @@ HRESULT WINAPI SetErrorInfo(ULONG reserved, IErrorInfo *error_info)
     tlsdata->errorinfo = error_info;
     if (error_info)
         IErrorInfo_AddRef(error_info);
+
+    return S_OK;
+}
+
+/***********************************************************************
+ *    IRestrictedErrorInfo implementation / helper (combase internal)
+ */
+struct restricted_error_info
+{
+    IRestrictedErrorInfo IRestrictedErrorInfo_iface;
+    IErrorInfo IErrorInfo_iface;
+    LONG refcount;
+
+    GUID guid;
+    WCHAR *source;
+    WCHAR *help_file;
+    DWORD help_context;
+
+    HRESULT hr;
+    WCHAR *description;
+    WCHAR *restricted_description;
+    WCHAR *capability_sid;
+    WCHAR *reference;
+
+    BOOL context_captured;
+    USHORT stack_frame_count;
+    void *stack_frames[32];
+    ULONG stack_hash;
+};
+
+static struct restricted_error_info *impl_from_IRestrictedErrorInfo(IRestrictedErrorInfo *iface)
+{
+    return CONTAINING_RECORD(iface, struct restricted_error_info, IRestrictedErrorInfo_iface);
+}
+
+static struct restricted_error_info *impl_from_restricted_IErrorInfo(IErrorInfo *iface)
+{
+    return CONTAINING_RECORD(iface, struct restricted_error_info, IErrorInfo_iface);
+}
+
+static ULONG restricted_errorinfo_addref(struct restricted_error_info *info)
+{
+    ULONG refcount = InterlockedIncrement(&info->refcount);
+
+    TRACE("%p, refcount %lu.\n", info, refcount);
+    return refcount;
+}
+
+static ULONG restricted_errorinfo_release(struct restricted_error_info *info)
+{
+    ULONG refcount = InterlockedDecrement(&info->refcount);
+
+    TRACE("%p, refcount %lu.\n", info, refcount);
+
+    if (!refcount)
+    {
+        free(info->source);
+        free(info->help_file);
+        free(info->description);
+        free(info->restricted_description);
+        free(info->capability_sid);
+        free(info->reference);
+        free(info);
+    }
+
+    return refcount;
+}
+
+static HRESULT WINAPI restricted_errorinfo_QueryInterface(IRestrictedErrorInfo *iface, REFIID riid, void **obj)
+{
+    struct restricted_error_info *info = impl_from_IRestrictedErrorInfo(iface);
+
+    TRACE("%p, %s, %p.\n", iface, debugstr_guid(riid), obj);
+
+    if (!obj) return E_POINTER;
+    *obj = NULL;
+
+    if (IsEqualIID(riid, &IID_IUnknown) || IsEqualIID(riid, &IID_IRestrictedErrorInfo))
+        *obj = &info->IRestrictedErrorInfo_iface;
+    else if (IsEqualIID(riid, &IID_IErrorInfo))
+        *obj = &info->IErrorInfo_iface;
+
+    if (*obj)
+    {
+        restricted_errorinfo_addref(info);
+        return S_OK;
+    }
+
+    WARN("Unsupported interface %s.\n", debugstr_guid(riid));
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI restricted_errorinfo_AddRef(IRestrictedErrorInfo *iface)
+{
+    struct restricted_error_info *info = impl_from_IRestrictedErrorInfo(iface);
+    return restricted_errorinfo_addref(info);
+}
+
+static ULONG WINAPI restricted_errorinfo_Release(IRestrictedErrorInfo *iface)
+{
+    struct restricted_error_info *info = impl_from_IRestrictedErrorInfo(iface);
+    return restricted_errorinfo_release(info);
+}
+
+static HRESULT WINAPI restricted_errorinfo_GetErrorDetails(IRestrictedErrorInfo *iface,
+        BSTR *description, HRESULT *error, BSTR *restricted_description, BSTR *capability_sid)
+{
+    struct restricted_error_info *info = impl_from_IRestrictedErrorInfo(iface);
+
+    TRACE("%p, %p, %p, %p, %p.\n", iface, description, error, restricted_description, capability_sid);
+
+    if (description)
+        *description = info->description ? SysAllocString(info->description) : NULL;
+    if (error)
+        *error = info->hr;
+    if (restricted_description)
+        *restricted_description = info->restricted_description ? SysAllocString(info->restricted_description) : NULL;
+    if (capability_sid)
+        *capability_sid = info->capability_sid ? SysAllocString(info->capability_sid) : NULL;
+
+    return S_OK;
+}
+
+static HRESULT WINAPI restricted_errorinfo_GetReference(IRestrictedErrorInfo *iface, BSTR *reference)
+{
+    struct restricted_error_info *info = impl_from_IRestrictedErrorInfo(iface);
+
+    TRACE("%p, %p.\n", iface, reference);
+
+    if (!reference) return E_POINTER;
+    *reference = info->reference ? SysAllocString(info->reference) : NULL;
+    return S_OK;
+}
+
+static HRESULT WINAPI restricted_errorinfo_ierror_QueryInterface(IErrorInfo *iface, REFIID riid, void **obj)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+    return IRestrictedErrorInfo_QueryInterface(&info->IRestrictedErrorInfo_iface, riid, obj);
+}
+
+static ULONG WINAPI restricted_errorinfo_ierror_AddRef(IErrorInfo *iface)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+    return restricted_errorinfo_addref(info);
+}
+
+static ULONG WINAPI restricted_errorinfo_ierror_Release(IErrorInfo *iface)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+    return restricted_errorinfo_release(info);
+}
+
+static HRESULT WINAPI restricted_errorinfo_ierror_GetGUID(IErrorInfo *iface, GUID *guid)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+
+    TRACE("%p, %p.\n", iface, guid);
+
+    if (!guid) return E_INVALIDARG;
+    *guid = info->guid;
+    return S_OK;
+}
+
+static HRESULT WINAPI restricted_errorinfo_ierror_GetSource(IErrorInfo *iface, BSTR *source)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+
+    TRACE("%p, %p.\n", iface, source);
+
+    if (!source) return E_INVALIDARG;
+    *source = info->source ? SysAllocString(info->source) : NULL;
+    return S_OK;
+}
+
+static HRESULT WINAPI restricted_errorinfo_ierror_GetDescription(IErrorInfo *iface, BSTR *description)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+
+    TRACE("%p, %p.\n", iface, description);
+
+    if (!description) return E_INVALIDARG;
+    *description = info->description ? SysAllocString(info->description) : NULL;
+    return S_OK;
+}
+
+static HRESULT WINAPI restricted_errorinfo_ierror_GetHelpFile(IErrorInfo *iface, BSTR *helpfile)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+
+    TRACE("%p, %p.\n", iface, helpfile);
+
+    if (!helpfile) return E_INVALIDARG;
+    *helpfile = info->help_file ? SysAllocString(info->help_file) : NULL;
+    return S_OK;
+}
+
+static HRESULT WINAPI restricted_errorinfo_ierror_GetHelpContext(IErrorInfo *iface, DWORD *help_context)
+{
+    struct restricted_error_info *info = impl_from_restricted_IErrorInfo(iface);
+
+    TRACE("%p, %p.\n", iface, help_context);
+
+    if (!help_context) return E_INVALIDARG;
+    *help_context = info->help_context;
+    return S_OK;
+}
+
+static const IErrorInfoVtbl restricted_errorinfo_ierror_vtbl =
+{
+    restricted_errorinfo_ierror_QueryInterface,
+    restricted_errorinfo_ierror_AddRef,
+    restricted_errorinfo_ierror_Release,
+    restricted_errorinfo_ierror_GetGUID,
+    restricted_errorinfo_ierror_GetSource,
+    restricted_errorinfo_ierror_GetDescription,
+    restricted_errorinfo_ierror_GetHelpFile,
+    restricted_errorinfo_ierror_GetHelpContext
+};
+
+static const IRestrictedErrorInfoVtbl restricted_errorinfo_vtbl =
+{
+    restricted_errorinfo_QueryInterface,
+    restricted_errorinfo_AddRef,
+    restricted_errorinfo_Release,
+    restricted_errorinfo_GetErrorDetails,
+    restricted_errorinfo_GetReference
+};
+
+HRESULT create_restricted_error_info(HRESULT hr, const WCHAR *description,
+        const WCHAR *restricted_description, const WCHAR *capability_sid,
+        const WCHAR *reference, IRestrictedErrorInfo **ret)
+{
+    struct restricted_error_info *info;
+
+    TRACE("%#lx, %s, %s, %s, %s, %p.\n", hr, debugstr_w(description),
+          debugstr_w(restricted_description), debugstr_w(capability_sid),
+          debugstr_w(reference), ret);
+
+    if (!ret) return E_INVALIDARG;
+    *ret = NULL;
+
+    info = calloc(1, sizeof(*info));
+    if (!info) return E_OUTOFMEMORY;
+
+    info->IRestrictedErrorInfo_iface.lpVtbl = &restricted_errorinfo_vtbl;
+    info->IErrorInfo_iface.lpVtbl = &restricted_errorinfo_ierror_vtbl;
+    info->refcount = 1;
+
+    info->guid = GUID_NULL;
+    info->source = NULL;
+    info->help_file = NULL;
+    info->help_context = 0;
+
+    info->hr = hr;
+    info->description = description ? wcsdup(description) : NULL;
+    info->restricted_description = restricted_description ? wcsdup(restricted_description) : NULL;
+    info->capability_sid = capability_sid ? wcsdup(capability_sid) : NULL;
+    info->reference = reference ? wcsdup(reference) : NULL;
+
+    info->context_captured = FALSE;
+    info->stack_frame_count = 0;
+    info->stack_hash = 0;
+
+    *ret = &info->IRestrictedErrorInfo_iface;
+    return S_OK;
+}
+
+HRESULT capture_restricted_error_context(IRestrictedErrorInfo *iface, HRESULT hr)
+{
+    struct restricted_error_info *info;
+    ULONG hash = 0;
+
+    TRACE("%p, %#lx.\n", iface, hr);
+
+    if (!iface)
+        return E_INVALIDARG;
+
+    info = impl_from_IRestrictedErrorInfo(iface);
+
+    info->hr = hr;
+    memset(info->stack_frames, 0, sizeof(info->stack_frames));
+    info->stack_frame_count = RtlCaptureStackBackTrace(1, ARRAY_SIZE(info->stack_frames),
+            info->stack_frames, &hash);
+    info->stack_hash = hash;
+    info->context_captured = TRUE;
+
+    return S_OK;
+}
+
+HRESULT copy_restricted_error_context(IRestrictedErrorInfo *dst_iface, IRestrictedErrorInfo *src_iface)
+{
+    struct restricted_error_info *dst, *src;
+
+    TRACE("%p, %p.\n", dst_iface, src_iface);
+
+    if (!dst_iface || !src_iface)
+        return E_INVALIDARG;
+
+    dst = impl_from_IRestrictedErrorInfo(dst_iface);
+    src = impl_from_IRestrictedErrorInfo(src_iface);
+
+    dst->context_captured = src->context_captured;
+    dst->stack_frame_count = src->stack_frame_count;
+    memcpy(dst->stack_frames, src->stack_frames, sizeof(dst->stack_frames));
+    dst->stack_hash = src->stack_hash;
 
     return S_OK;
 }

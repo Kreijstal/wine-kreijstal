@@ -288,8 +288,8 @@
 @ stdcall PropVariantCopy(ptr ptr)
 @ stub ReleaseFuncDescs
 @ stdcall RoActivateInstance(ptr ptr)
-@ stub RoCaptureErrorContext
-@ stub RoClearError
+@ stdcall RoCaptureErrorContext(long)
+@ stdcall RoClearError()
 @ stdcall RoFailFastWithErrorContext(long)
 @ stub RoFreeParameterizedTypeExtra
 @ stub RoGetActivatableClassRegistration
@@ -297,7 +297,7 @@
 @ stdcall RoGetAgileReference(long ptr ptr ptr)
 @ stdcall RoGetApartmentIdentifier(ptr)
 @ stdcall RoGetErrorReportingFlags(ptr)
-@ stub RoGetMatchingRestrictedErrorInfo
+@ stdcall RoGetMatchingRestrictedErrorInfo(long ptr)
 @ stdcall RoGetParameterizedTypeInstanceIID(long ptr ptr ptr ptr)
 @ stdcall RoGetServerActivatableClasses(ptr ptr ptr)
 @ stdcall RoInitialize(long)
@@ -315,8 +315,8 @@
 @ stub RoResolveRestrictedErrorInfoReference
 @ stub RoRevokeActivationFactories
 @ stdcall RoSetErrorReportingFlags(long)
-@ stub RoTransformError
-@ stub RoTransformErrorW
+@ stdcall RoTransformError(long long ptr)
+@ stdcall RoTransformErrorW(long long long ptr)
 @ stdcall RoUninitialize()
 @ stub RoUnregisterForApartmentShutdown
 @ stub SetCleanupFlag

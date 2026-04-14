@@ -23,12 +23,18 @@
 #include "winerror.h"
 #include "winstring.h"
 #include "winternl.h"
+#include "oleauto.h"
 
 #include "initguid.h"
 #include "roapi.h"
 #include "roerrorapi.h"
 
 #include "wine/test.h"
+
+HRESULT WINAPI RoCaptureErrorContext(HRESULT hr);
+void WINAPI RoClearError(void);
+HRESULT WINAPI RoGetMatchingRestrictedErrorInfo(HRESULT hr, IRestrictedErrorInfo **info);
+BOOL WINAPI RoTransformErrorW(HRESULT old_error, HRESULT new_error, UINT cchMax, const WCHAR *message);
 
 #define EXPECT_REF(obj,ref) _expect_ref((IUnknown*)obj, ref, __LINE__)
 static void _expect_ref(IUnknown* obj, ULONG ref, int line)
@@ -866,6 +872,169 @@ static void test_RoGetErrorReportingFlags(void)
     ok(flags == RO_ERROR_REPORTING_USESETERRORINFO, "Got unexpected flag %#x.\n", flags);
 }
 
+static BOOL wstr_equal_nullsafe(const WCHAR *a, const WCHAR *b)
+{
+    if (!a && !b) return TRUE;
+    if (!a || !b) return FALSE;
+    return !lstrcmpW(a, b);
+}
+
+static void check_restricted_error_details_(unsigned int line, IRestrictedErrorInfo *info,
+        HRESULT expected_hr, const WCHAR *expected_desc, const WCHAR *expected_restricted)
+{
+    BSTR desc = NULL, restricted = NULL, capability = NULL;
+    HRESULT hr = E_FAIL, call_hr;
+
+    ok_(__FILE__, line)(!!info, "expected restricted error info.\n");
+    if (!info) return;
+
+    call_hr = IRestrictedErrorInfo_GetErrorDetails(info, &desc, &hr, &restricted, &capability);
+    ok_(__FILE__, line)(call_hr == S_OK, "GetErrorDetails returned %#lx.\n", call_hr);
+    if (call_hr == S_OK)
+    {
+        ok_(__FILE__, line)(hr == expected_hr, "got hr %#lx, expected %#lx.\n", hr, expected_hr);
+        ok_(__FILE__, line)(wstr_equal_nullsafe(desc, expected_desc),
+                "got desc %s, expected %s.\n", wine_dbgstr_w(desc), wine_dbgstr_w(expected_desc));
+        ok_(__FILE__, line)(wstr_equal_nullsafe(restricted, expected_restricted),
+                "got restricted %s, expected %s.\n", wine_dbgstr_w(restricted), wine_dbgstr_w(expected_restricted));
+    }
+
+    if (desc) SysFreeString(desc);
+    if (restricted) SysFreeString(restricted);
+    if (capability) SysFreeString(capability);
+}
+
+#define check_restricted_error_details(info, hr, desc, restricted) \
+    check_restricted_error_details_(__LINE__, info, hr, desc, restricted)
+
+static void clear_restricted_error_state(void)
+{
+    IRestrictedErrorInfo *info = NULL;
+
+    RoClearError();
+    while (GetRestrictedErrorInfo(&info) == S_OK && info)
+    {
+        IRestrictedErrorInfo_Release(info);
+        info = NULL;
+    }
+}
+
+static void test_restricted_error_handling(void)
+{
+    static const WCHAR originate_msg[] = L"originate-one";
+    static const WCHAR old_msg[] = L"old-message";
+    static const WCHAR new_msg[] = L"new-message";
+    static const WCHAR suppressed_msg[] = L"suppressed";
+    IRestrictedErrorInfo *info = NULL;
+    HRESULT hr;
+    UINT32 flags = 0;
+    BOOL uninit = FALSE;
+
+    hr = RoInitialize(RO_INIT_MULTITHREADED);
+    ok(hr == S_OK || hr == S_FALSE, "RoInitialize returned %#lx.\n", hr);
+    if (SUCCEEDED(hr))
+        uninit = TRUE;
+
+    clear_restricted_error_state();
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_FALSE, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    ok(!info, "got info %p.\n", info);
+
+    ok(!RoOriginateErrorW(S_OK, 0, L"should-not-set"),
+            "RoOriginateErrorW should fail for success HRESULT.\n");
+
+    ok(RoOriginateErrorW(E_ACCESSDENIED, 0, originate_msg),
+            "RoOriginateErrorW failed.\n");
+
+    hr = RoCaptureErrorContext(E_ACCESSDENIED);
+    ok(hr == S_OK, "RoCaptureErrorContext returned %#lx.\n", hr);
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_OK, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    check_restricted_error_details(info, E_ACCESSDENIED, originate_msg, NULL);
+    IRestrictedErrorInfo_Release(info);
+    info = NULL;
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_FALSE, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    ok(!info, "got info %p.\n", info);
+
+    hr = RoGetMatchingRestrictedErrorInfo(E_ACCESSDENIED, &info);
+    ok(hr == S_OK, "RoGetMatchingRestrictedErrorInfo returned %#lx.\n", hr);
+    check_restricted_error_details(info, E_ACCESSDENIED, NULL, NULL);
+
+    hr = SetRestrictedErrorInfo(info);
+    ok(hr == S_OK, "SetRestrictedErrorInfo returned %#lx.\n", hr);
+    IRestrictedErrorInfo_Release(info);
+    info = NULL;
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_OK, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    check_restricted_error_details(info, E_ACCESSDENIED, NULL, NULL);
+    IRestrictedErrorInfo_Release(info);
+    info = NULL;
+
+    hr = SetRestrictedErrorInfo(NULL);
+    ok(hr == S_OK, "SetRestrictedErrorInfo(NULL) returned %#lx.\n", hr);
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_FALSE, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    ok(!info, "got info %p.\n", info);
+
+    ok(RoOriginateErrorW(E_FAIL, 0, old_msg), "RoOriginateErrorW failed.\n");
+    hr = RoCaptureErrorContext(E_FAIL);
+    ok(hr == S_OK, "RoCaptureErrorContext returned %#lx.\n", hr);
+
+    ok(RoTransformErrorW(E_FAIL, E_ACCESSDENIED, 0, new_msg),
+            "RoTransformErrorW failed.\n");
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_OK, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    check_restricted_error_details(info, E_ACCESSDENIED, new_msg, old_msg);
+    IRestrictedErrorInfo_Release(info);
+    info = NULL;
+
+    hr = RoReportUnhandledError(NULL);
+    ok(hr == E_POINTER, "RoReportUnhandledError returned %#lx.\n", hr);
+
+    hr = RoGetMatchingRestrictedErrorInfo(E_BOUNDS, &info);
+    ok(hr == S_OK, "RoGetMatchingRestrictedErrorInfo returned %#lx.\n", hr);
+
+    hr = RoReportUnhandledError(info);
+    ok(hr == S_OK, "RoReportUnhandledError returned %#lx.\n", hr);
+    IRestrictedErrorInfo_Release(info);
+    info = NULL;
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_OK, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    check_restricted_error_details(info, E_BOUNDS, NULL, NULL);
+    IRestrictedErrorInfo_Release(info);
+    info = NULL;
+
+    hr = RoSetErrorReportingFlags(RO_ERROR_REPORTING_SUPPRESSSETERRORINFO);
+    ok(hr == S_OK, "RoSetErrorReportingFlags returned %#lx.\n", hr);
+
+    ok(RoOriginateErrorW(E_FAIL, 0, suppressed_msg),
+            "RoOriginateErrorW failed under suppressed mode.\n");
+
+    hr = GetRestrictedErrorInfo(&info);
+    ok(hr == S_FALSE, "GetRestrictedErrorInfo returned %#lx.\n", hr);
+    ok(!info, "got info %p.\n", info);
+
+    hr = RoSetErrorReportingFlags(RO_ERROR_REPORTING_USESETERRORINFO);
+    ok(hr == S_OK, "RoSetErrorReportingFlags returned %#lx.\n", hr);
+
+    hr = RoGetErrorReportingFlags(&flags);
+    ok(hr == S_OK, "RoGetErrorReportingFlags returned %#lx.\n", hr);
+    ok(flags == RO_ERROR_REPORTING_USESETERRORINFO, "got flags %#x.\n", flags);
+
+    clear_restricted_error_state();
+
+    if (uninit)
+        RoUninitialize();
+}
+
 START_TEST(roapi)
 {
     BOOL ret;
@@ -876,6 +1045,7 @@ START_TEST(roapi)
     test_ActivationFactories();
     test_RoGetAgileReference();
     test_RoGetErrorReportingFlags();
+    test_restricted_error_handling();
 
     SetLastError(0xdeadbeef);
     ret = DeleteFileW(L"wine.combase.test.dll");

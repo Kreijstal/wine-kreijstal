@@ -644,7 +644,7 @@ static HRESULT do_composite(const struct composition_target *target, struct comp
 
             /* The front buffer is the last back buffer because the composition swapchain must
                      * be created with DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL */
-            hr = IDXGISwapChain1_GetBuffer(swapchain, swapchain_desc.BufferCount - 1, &IID_IDXGISurface,
+            hr = IDXGISwapChain1_GetBuffer(swapchain, 0, &IID_IDXGISurface,
                                            (void **)&dxgi_surface);
             IDXGISwapChain1_Release(swapchain);
             if (FAILED(hr))

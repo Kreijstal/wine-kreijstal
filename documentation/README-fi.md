@@ -1,5 +1,8 @@
 ## JOHDANTO
 
+**Huomautus tästä forkista**: Tämä arkisto on henkilökohtainen Wine-fork. Ilmoita tämän forkin viat ja pull requestit osoitteissa https://github.com/Kreijstal/wine-kreijstal/issues ja https://github.com/Kreijstal/wine-kreijstal/pulls . Älä ilmoita tämän forkin tai sen lisäpatchien aiheuttamia vikoja upstream Wineen.
+
+
 Wine on ohjelma, jonka avulla Windows-ohjelmia (mukaan luettuna DOS-,
 Windows 3.x, Win32 ja Win64 -ohjelmat) voi ajaa Unix-järjestelmissä.
 Wine koostuu ohjelmanlataajasta, joka lataa ja käynnistää Windowsin

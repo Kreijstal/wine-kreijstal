@@ -1,5 +1,8 @@
 ## 소개
 
+**이 포크에 대한 안내**: 이 저장소는 Wine의 개인 포크입니다. 이 포크의 버그와 pull request는 https://github.com/Kreijstal/wine-kreijstal/issues 및 https://github.com/Kreijstal/wine-kreijstal/pulls 에 제출하십시오. 이 포크 또는 추가 패치로 인해 발생한 버그를 upstream Wine에 보고하지 마십시오.
+
+
 Wine은 Microsoft Windows 프로그램(DOS, Windows 3.x, Win32 및 Win64 실행
 파일 포함)을 유닉스 상에서 실행할 수 있게 해 주는 프로그램입니다.  Wine은
 Microsoft Windows 바이너리를 로드하고 실행하는 프로그램 로더와 Unix, X11

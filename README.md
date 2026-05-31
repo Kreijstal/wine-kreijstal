@@ -169,4 +169,3 @@ a bug.
 - **Issues**: Report bugs for this fork at https://github.com/Kreijstal/wine-kreijstal/issues .
 
 - **Pull requests**: Submit changes for this fork at https://github.com/Kreijstal/wine-kreijstal/pulls .
-

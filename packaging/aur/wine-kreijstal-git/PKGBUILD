@@ -1,0 +1,115 @@
+# Maintainer: Kreijstal <aur@users.noreply.github.com>
+
+pkgname=wine-kreijstal-git
+pkgver=11.10.r0.g2056e428099
+pkgrel=1
+pkgdesc='Wine fork with Kreijstal patches, built from Git'
+arch=('x86_64')
+url='https://github.com/Kreijstal/wine-kreijstal'
+license=('LGPL-2.1-or-later')
+provides=('wine' 'wine-wow64')
+conflicts=('wine' 'wine-staging' 'wine-git' 'wine-kreijstal-bin')
+options=('!strip')
+
+makedepends=(
+  'alsa-lib'
+  'bison'
+  'ccache'
+  'dbus'
+  'desktop-file-utils'
+  'flex'
+  'fontforge'
+  'freetype2'
+  'gcc'
+  'gcc-libs'
+  'gettext'
+  'git'
+  'gst-plugins-base-libs'
+  'lib32-alsa-lib'
+  'lib32-dbus'
+  'lib32-freetype2'
+  'lib32-gcc-libs'
+  'lib32-glib2'
+  'lib32-gst-plugins-base-libs'
+  'lib32-gnutls'
+  'lib32-libgl'
+  'lib32-libpcap'
+  'lib32-libpulse'
+  'lib32-libusb'
+  'lib32-libx11'
+  'lib32-libxcomposite'
+  'lib32-libxcursor'
+  'lib32-libxext'
+  'lib32-libxi'
+  'lib32-libxkbcommon'
+  'lib32-libxrandr'
+  'lib32-libxrender'
+  'lib32-libxxf86vm'
+  'lib32-mesa'
+  'lib32-ocl-icd'
+  'lib32-sdl2'
+  'lib32-v4l-utils'
+  'lib32-vulkan-icd-loader'
+  'lib32-wayland'
+  'libpcap'
+  'libpulse'
+  'libusb'
+  'libx11'
+  'libxcomposite'
+  'libxcursor'
+  'libxext'
+  'libxi'
+  'libxkbcommon'
+  'libxrandr'
+  'libxrender'
+  'libxxf86vm'
+  'mingw-w64-gcc'
+  'ocl-icd'
+  'sdl2'
+  'v4l-utils'
+  'vulkan-headers'
+  'vulkan-icd-loader'
+  'wayland'
+  'wayland-protocols'
+)
+
+depends=(
+  'alsa-lib'
+  'ffmpeg'
+  'gcc-libs'
+  'glib2'
+  'glibc'
+  'gst-plugins-base-libs'
+  'gstreamer'
+  'libgudev'
+  'libpcap'
+  'libpulse'
+  'libusb'
+  'libx11'
+  'libxext'
+  'libxkbcommon'
+  'libxkbcommon-x11'
+  'ocl-icd'
+  'pcsclite'
+  'vulkan-icd-loader'
+  'wayland'
+)
+
+source=('git+https://github.com/Kreijstal/wine-kreijstal.git#branch=kreijstal-fixes')
+sha256sums=('SKIP')
+
+pkgver() {
+  cd wine-kreijstal
+  printf '%s.r%s.g%s' "$(sed -n 's/^#define PACKAGE_VERSION \"\(.*\)\"/\1/p' include/config.h.in 2>/dev/null || printf 11.10)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+  cd wine-kreijstal
+  ./build-wine-simple.sh
+}
+
+package() {
+  cd wine-kreijstal
+  make -C build64 install DESTDIR="${pkgdir}"
+  make -C build32 install DESTDIR="${pkgdir}"
+}

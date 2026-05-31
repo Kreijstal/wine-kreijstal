@@ -1,5 +1,8 @@
 ## ВСТУП
 
+**Примітка про цей форк**: Цей репозиторій є особистим форком Wine. Повідомляйте про помилки та надсилайте pull request для цього форку на https://github.com/Kreijstal/wine-kreijstal/issues і https://github.com/Kreijstal/wine-kreijstal/pulls . Не повідомляйте upstream Wine про помилки, спричинені цим форком або його додатковими патчами.
+
+
 Wine - це програма, яка дозволяє запускати програми Microsoft
 Windows (включаючи DOS, Windows 3.x, Win32 та Win64) на Unix. Вона
 складається з програми завантаження, яка завантажує та виконує програми

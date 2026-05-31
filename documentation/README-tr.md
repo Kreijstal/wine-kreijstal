@@ -1,5 +1,8 @@
 ## GİRİŞ
 
+**Bu fork hakkında not**: Bu depo Wine'ın kişisel bir forkudur. Bu forka ait hataları ve pull requestleri https://github.com/Kreijstal/wine-kreijstal/issues ve https://github.com/Kreijstal/wine-kreijstal/pulls adreslerine gönderin. Bu fork veya ek yamaları nedeniyle oluşan hataları upstream Wine'a bildirmeyin.
+
+
 Wine Microsoft Windows uygulamalarını (DOS, Windows 3.x ve Win32
 uygulamaları dahil) Unix uyumlu sistemler üzerinde çalıştırmanıza izin
 veren bir programdır. Microsoft Windows çalıştırılabilir dosyalarını

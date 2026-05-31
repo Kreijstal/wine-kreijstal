@@ -1,5 +1,8 @@
 ## はじめに
 
+**このフォークについて**: このリポジトリは Wine の個人フォークです。このフォークのバグ報告と pull request は https://github.com/Kreijstal/wine-kreijstal/issues および https://github.com/Kreijstal/wine-kreijstal/pulls に送ってください。このフォークまたは追加パッチに起因する問題を upstream Wine に報告しないでください。
+
+
 Wineは（DOS、Windows 3.x、Win32 や Win64 実行可能ファイルを含む）Microsoft
 WindowsプログラムをUnix上で実行できるようにするプログラムです。
 Microsoft Windowsバイナリを読み込んで実行するプログラムローダと、

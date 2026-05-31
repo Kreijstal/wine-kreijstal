@@ -1,5 +1,8 @@
 ## INTRODUKSJON
 
+**Merknad om denne forken**: Dette depotet er en personlig fork av Wine. Rapporter feil og pull requests for denne forken på https://github.com/Kreijstal/wine-kreijstal/issues og https://github.com/Kreijstal/wine-kreijstal/pulls . Ikke rapporter feil som skyldes denne forken eller ekstra patcher til upstream Wine.
+
+
 Wine er et program som gjør det mulig å kjøre Windows-programmer
 (inkludert DOS, Windows 3.x, Win32 og Win64) i Unix. Det består av en
 programstarter som starter og kjører en Windows-programfil, og et

@@ -1,5 +1,8 @@
 ## BEVEZETÉS
 
+**Megjegyzés erről a forkról**: Ez a tároló a Wine személyes forkja. A fork hibáit és pull requestjeit itt jelentse: https://github.com/Kreijstal/wine-kreijstal/issues és https://github.com/Kreijstal/wine-kreijstal/pulls . Ne jelentse az upstream Wine felé azokat a hibákat, amelyeket ez a fork vagy az extra patchei okoznak.
+
+
 A Wine egy program amivel lehetõség nyílik a Microsoft Windows
 programok futtatására (beleértve a  DOS, Windows 3.x és Win32
 futtatható állományokat) Unix alatt.  Tartalmaz egy program betöltõt,

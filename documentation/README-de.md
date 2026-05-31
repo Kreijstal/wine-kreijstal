@@ -1,5 +1,8 @@
 ## EINFÜHRUNG
 
+**Hinweis zu diesem Fork**: Dieses Repository ist ein persönlicher Fork von Wine. Melden Sie Fehler und Pull Requests für diesen Fork unter https://github.com/Kreijstal/wine-kreijstal/issues bzw. https://github.com/Kreijstal/wine-kreijstal/pulls . Melden Sie durch diesen Fork oder seine zusätzlichen Patches verursachte Fehler nicht an upstream Wine.
+
+
 Wine ist ein Programm, das es ermöglicht, Programme, die für Microsoft
 Windows geschrieben wurden (inklusive DOS-, Windows 3.x-, Win32- und
 Win64-Binärdateien), unter Unix auszuführen. Es besteht aus einem Programm-

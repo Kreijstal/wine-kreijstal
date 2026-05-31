@@ -173,8 +173,55 @@ HRESULT WINAPI EndBufferedPaint(HPAINTBUFFER bufferhandle, BOOL update)
  */
 HRESULT WINAPI BufferedPaintClear(HPAINTBUFFER hBufferedPaint, const RECT *prc)
 {
-    FIXME("Stub (%p %p)\n", hBufferedPaint, prc);
-    return E_NOTIMPL;
+    struct paintbuffer *buffer = get_buffer_obj(hBufferedPaint);
+    RECT rect;
+
+    TRACE("(%p %s)\n", hBufferedPaint, wine_dbgstr_rect(prc));
+
+    if (!buffer)
+        return E_FAIL;
+
+    rect = prc ? *prc : buffer->rect;
+    if (IsRectEmpty(&rect))
+        return S_OK;
+
+    if (buffer->bits)
+    {
+        RECT local = rect;
+        int width = buffer->rect.right - buffer->rect.left;
+        int height = buffer->rect.bottom - buffer->rect.top;
+        int x, y;
+
+        local.left   = max(local.left, buffer->rect.left);
+        local.top    = max(local.top, buffer->rect.top);
+        local.right  = min(local.right, buffer->rect.right);
+        local.bottom = min(local.bottom, buffer->rect.bottom);
+        if (IsRectEmpty(&local))
+            return S_OK;
+
+        local.left   -= buffer->rect.left;
+        local.right  -= buffer->rect.left;
+        local.top    -= buffer->rect.top;
+        local.bottom -= buffer->rect.top;
+
+        if (local.left < 0) local.left = 0;
+        if (local.top < 0) local.top = 0;
+        if (local.right > width) local.right = width;
+        if (local.bottom > height) local.bottom = height;
+
+        for (y = local.top; y < local.bottom; ++y)
+        {
+            RGBQUAD *row = (RGBQUAD *)buffer->bits + y * width;
+            for (x = local.left; x < local.right; ++x)
+                row[x].rgbRed = row[x].rgbGreen = row[x].rgbBlue = row[x].rgbReserved = 0;
+        }
+        return S_OK;
+    }
+
+    if (!PatBlt(buffer->memorydc, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, BLACKNESS))
+        WARN("PatBlt() failed\n");
+
+    return S_OK;
 }
 
 /***********************************************************************
@@ -182,8 +229,53 @@ HRESULT WINAPI BufferedPaintClear(HPAINTBUFFER hBufferedPaint, const RECT *prc)
  */
 HRESULT WINAPI BufferedPaintSetAlpha(HPAINTBUFFER hBufferedPaint, const RECT *prc, BYTE alpha)
 {
-    FIXME("Stub (%p %p %u)\n", hBufferedPaint, prc, alpha);
-    return E_NOTIMPL;
+    struct paintbuffer *buffer = get_buffer_obj(hBufferedPaint);
+    RECT rect;
+
+    TRACE("(%p %s %u)\n", hBufferedPaint, wine_dbgstr_rect(prc), alpha);
+
+    if (!buffer)
+        return E_FAIL;
+
+    if (!buffer->bits)
+        return S_OK;
+
+    rect = prc ? *prc : buffer->rect;
+    if (IsRectEmpty(&rect))
+        return S_OK;
+
+    {
+        RECT local = rect;
+        int width = buffer->rect.right - buffer->rect.left;
+        int height = buffer->rect.bottom - buffer->rect.top;
+        int x, y;
+
+        local.left   = max(local.left, buffer->rect.left);
+        local.top    = max(local.top, buffer->rect.top);
+        local.right  = min(local.right, buffer->rect.right);
+        local.bottom = min(local.bottom, buffer->rect.bottom);
+        if (IsRectEmpty(&local))
+            return S_OK;
+
+        local.left   -= buffer->rect.left;
+        local.right  -= buffer->rect.left;
+        local.top    -= buffer->rect.top;
+        local.bottom -= buffer->rect.top;
+
+        if (local.left < 0) local.left = 0;
+        if (local.top < 0) local.top = 0;
+        if (local.right > width) local.right = width;
+        if (local.bottom > height) local.bottom = height;
+
+        for (y = local.top; y < local.bottom; ++y)
+        {
+            RGBQUAD *row = (RGBQUAD *)buffer->bits + y * width;
+            for (x = local.left; x < local.right; ++x)
+                row[x].rgbReserved = alpha;
+        }
+    }
+
+    return S_OK;
 }
 
 /***********************************************************************

@@ -517,7 +517,17 @@ static BOOL X11DRV_XF86VM_SetGammaRamp(struct x11drv_gamma_ramp *ramp)
   if (xf86vm_use_gammaramp)
       return xf86vm_set_gamma_ramp(ramp);
 #endif
-  return pXF86VidModeSetGamma(gdi_display, DefaultScreen(gdi_display), &gamma);
+  {
+      BOOL ret;
+      /* An out-of-range gamma makes the server return BadValue; guard the
+       * request like every other XF86VidMode call so the error does not
+       * escape to the default (fatal) Xlib handler and kill the process. */
+      X11DRV_expect_error(gdi_display, XVidModeErrorHandler, NULL);
+      ret = pXF86VidModeSetGamma(gdi_display, DefaultScreen(gdi_display), &gamma);
+      if (ret) XSync( gdi_display, FALSE );
+      if (X11DRV_check_error()) ret = FALSE;
+      return ret;
+  }
 #else
   return FALSE;
 #endif /* X_XF86VidModeSetGamma */

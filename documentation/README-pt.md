@@ -1,5 +1,8 @@
 ## INTRODUÇÃO
 
+**Nota sobre este fork**: este repositório é um fork pessoal do Wine. Relate bugs e envie pull requests deste fork em https://github.com/Kreijstal/wine-kreijstal/issues e https://github.com/Kreijstal/wine-kreijstal/pulls . Não relate ao upstream Wine bugs causados por este fork ou por seus patches adicionais.
+
+
 Wine é um programa que permite correr programas Microsoft Windows
 (incluindo DOS, Windows 3.x e Win32 executáveis) em Unix.
 Consiste num carregador (loader), que carrega e executa um binário

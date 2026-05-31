@@ -1,3 +1,6 @@
+
+**Opmerking over deze fork**: deze repository is een persoonlijke fork van Wine. Meld bugs en pull requests voor deze fork via https://github.com/Kreijstal/wine-kreijstal/issues en https://github.com/Kreijstal/wine-kreijstal/pulls . Meld bugs die door deze fork of extra patches worden veroorzaakt niet bij upstream Wine.
+
 ﻿## INTRODUCTIE
 
 Wine is een programma wat het mogelijk maakt om Microsoft Windows

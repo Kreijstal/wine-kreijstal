@@ -30,7 +30,6 @@ makedepends=(
   'lib32-freetype2'
   'lib32-gcc-libs'
   'lib32-glib2'
-  'lib32-gst-plugins-base-libs'
   'lib32-gnutls'
   'lib32-libgl'
   'lib32-libpcap'

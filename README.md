@@ -1,3 +1,18 @@
+## About this fork
+
+This repository is a personal fork of upstream Wine maintained by Kreijstal.
+It carries experimental fixes and integration patches that may not match upstream
+Wine policy or review requirements.
+
+Issues and pull requests for this fork should be filed on this GitHub repository.
+Do not report bugs caused by this fork, its extra patches, or its local policy
+differences to upstream Wine unless the same issue is reproduced with an
+unmodified upstream Wine build.
+
+This fork intentionally has a laxer contribution policy than upstream Wine.
+Pseudonymous GitHub issues and pull requests are acceptable here, subject to
+normal project discretion and applicable licensing.
+
 ## INTRODUCTION
 
 Wine is a program which allows running Microsoft Windows programs

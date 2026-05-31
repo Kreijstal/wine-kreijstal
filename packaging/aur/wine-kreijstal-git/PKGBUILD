@@ -1,7 +1,7 @@
 # Maintainer: Kreijstal <aur@users.noreply.github.com>
 
 pkgname=wine-kreijstal-git
-pkgver=11.10.r0.g2056e428099
+pkgver=11.10.r183568.g3f93d6edc0e
 pkgrel=1
 pkgdesc='Wine fork with Kreijstal patches, built from Git'
 arch=('x86_64')
@@ -9,7 +9,7 @@ url='https://github.com/Kreijstal/wine-kreijstal'
 license=('LGPL-2.1-or-later')
 provides=('wine' 'wine-wow64')
 conflicts=('wine' 'wine-staging' 'wine-git' 'wine-kreijstal-bin')
-options=('!strip')
+options=('!strip' '!lto')
 
 makedepends=(
   'alsa-lib'
@@ -99,7 +99,9 @@ sha256sums=('SKIP')
 
 pkgver() {
   cd wine-kreijstal
-  printf '%s.r%s.g%s' "$(sed -n 's/^#define PACKAGE_VERSION \"\(.*\)\"/\1/p' include/config.h.in 2>/dev/null || printf 11.10)" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  local version
+  version="$(sed -n 's/^m4_define(\[wine_version\],\[\(.*\)\])/\1/p' configure.ac)"
+  printf '%s.r%s.g%s' "${version:-11.10}" "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {

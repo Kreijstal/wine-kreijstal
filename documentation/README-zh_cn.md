@@ -1,5 +1,8 @@
 ## 简介
 
+**关于此 fork 的说明**：此仓库是 Wine 的个人 fork。此 fork 的错误报告和 pull request 请提交到 https://github.com/Kreijstal/wine-kreijstal/issues 和 https://github.com/Kreijstal/wine-kreijstal/pulls 。请不要将此 fork 或其额外补丁导致的问题报告给 upstream Wine。
+
+
 Wine 是能够使 Microsoft Windows 程序（包括 DOS、Windows 3.x、Win32
 以及 Win64 可执行程序）在 Unix 上运行的应用程序。
 它包含一个用来加载并执行 Microsoft Windows 二进制程序的程序加载器，

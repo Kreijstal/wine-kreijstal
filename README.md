@@ -164,23 +164,25 @@ a bug.
 
 ## GETTING MORE INFORMATION
 
-- **WWW**: A great deal of information about Wine is available from WineHQ at
-	https://www.winehq.org/ : various Wine Guides, application database,
-	bug tracking. This is probably the best starting point.
+- **WWW**: General information about upstream Wine is available from WineHQ at
+	https://www.winehq.org/ . This fork is maintained at
+	https://github.com/Kreijstal/wine-kreijstal .
 
 - **FAQ**: The Wine FAQ is located at https://gitlab.winehq.org/wine/wine/-/wikis/FAQ
 
 - **Wiki**: The Wine Wiki is located at https://gitlab.winehq.org/wine/wine/-/wikis/
 
-- **Gitlab**: Wine development is hosted at https://gitlab.winehq.org
+- **Gitlab**: Upstream Wine development is hosted at https://gitlab.winehq.org
 
 - **Mailing lists**:
 	There are several mailing lists for Wine users and developers; see
 	https://gitlab.winehq.org/wine/wine/-/wikis/Forums for more
 	information.
 
-- **Bugs**: Report bugs to Wine Bugzilla at https://bugs.winehq.org
-	Please search the bugzilla database to check whether your
-	problem is already known or fixed before posting a bug report.
+- **Bugs**: Report bugs for this fork at
+	https://github.com/Kreijstal/wine-kreijstal/issues . Do not report
+	bugs caused by this fork, its extra patches, or its local policy
+	differences to upstream Wine. Use Wine Bugzilla only for issues
+	reproduced with an unmodified upstream Wine build.
 
 - **IRC**: Online help is available at channel `#WineHQ` on irc.libera.chat.

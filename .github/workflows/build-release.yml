@@ -10,6 +10,66 @@ permissions:
   contents: write
 
 jobs:
+  build-arch-pacman:
+    name: Arch pacman package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Install package tools
+        run: |
+          pacman -Syu --noconfirm --needed \
+            base-devel git ccache sudo
+
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Prepare makepkg user
+        run: |
+          useradd -m builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /home/builder/.cache/ccache
+          key: arch-ccache-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            arch-ccache-${{ github.ref_name }}-
+            arch-ccache-
+
+      - name: Build pacman package
+        working-directory: packaging/aur/wine-kreijstal-git
+        run: |
+          sudo -u builder ccache --set-config=max_size=5G
+          sudo -u builder makepkg --syncdeps --noconfirm
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp ./*.pkg.tar.zst "$GITHUB_WORKSPACE/dist/"
+          sha256sum "$GITHUB_WORKSPACE"/dist/*.pkg.tar.zst > "$GITHUB_WORKSPACE/dist/SHA256SUMS"
+          sudo -u builder ccache --show-stats
+
+      - name: Upload pacman package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wine-kreijstal-arch-pacman
+          path: |
+            dist/*.pkg.tar.zst
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish pacman release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.pkg.tar.zst
+            dist/SHA256SUMS
+          generate_release_notes: true
+
   build-linux-wow64:
     name: Linux WoW64 package
     runs-on: ubuntu-24.04

@@ -26,6 +26,61 @@ Wine is free software, released under the GNU LGPL; see the file
 LICENSE for the details.
 
 
+
+## CCACHE BUILDS
+
+This fork includes `build-wine-simple.sh`, a helper script that configures Wine
+with `ccache` for both native Unix compilers and MinGW PE cross-compilers.
+
+Install `ccache` and the required native and MinGW toolchains first. Then run:
+
+```
+./build-wine-simple.sh
+```
+
+The helper creates separate build trees:
+
+```
+build64/   64-bit Wine build, configured with --enable-win64
+build32/   32-bit WoW64 build, configured with --with-wine64=../build64
+```
+
+The important part is passing `ccache` through Wine's compiler variables, not by
+renaming compilers globally. For a manual 64-bit build, use:
+
+```
+mkdir -p build64
+cd build64
+../configure \
+  --enable-win64 \
+  CC="ccache gcc" \
+  CXX="ccache g++" \
+  x86_64_CC="ccache x86_64-w64-mingw32-gcc"
+make -j"$(nproc)"
+```
+
+For the paired 32-bit WoW64 build, use:
+
+```
+mkdir -p build32
+cd build32
+../configure \
+  --with-wine64=../build64 \
+  CC="ccache gcc -m32" \
+  CXX="ccache g++ -m32" \
+  i386_CC="ccache i686-w64-mingw32-gcc"
+make -j"$(nproc)"
+```
+
+To check that `ccache` is actually being used:
+
+```
+ccache -s
+```
+
+The build commands should show compiler invocations such as `ccache gcc`,
+`ccache x86_64-w64-mingw32-gcc`, and `ccache i686-w64-mingw32-gcc`.
+
 ## QUICK START
 
 From the top-level directory of the Wine source (which contains this file),

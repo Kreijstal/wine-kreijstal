@@ -57,6 +57,67 @@ static void *client_objects[MAX_USER_HANDLES];
 static volatile unsigned int startup_info_flags;
 static unsigned int startup_show_window;
 
+static BOOL is_pathfinder_splash_child( HWND hwnd )
+{
+    static const WCHAR tcxW[] = {'T','c','x',0};
+    static const WCHAR tlabelW[] = {'T','L','a','b','e','l',0};
+    static const WCHAR teditW[] = {'T','E','d','i','t',0};
+    static const WCHAR tcomboboxW[] = {'T','C','o','m','b','o','B','o','x',0};
+    static const WCHAR tbuttonW[] = {'T','B','u','t','t','o','n',0};
+    static const WCHAR tfrmsplashW[] = {'T','f','r','m','S','p','l','a','s','h',0};
+    WCHAR class_name[256], parent_class[256];
+    UNICODE_STRING name;
+    HWND parent;
+
+    if (!(parent = NtUserGetAncestor( hwnd, GA_PARENT ))) return FALSE;
+
+    name.Buffer = class_name;
+    name.MaximumLength = sizeof(class_name);
+    if (!NtUserGetClassName( hwnd, FALSE, &name )) return FALSE;
+    if (wcsncmp( class_name, tcxW, 3 ) && wcscmp( class_name, tlabelW ) &&
+        wcscmp( class_name, teditW ) && wcscmp( class_name, tcomboboxW ) &&
+        wcscmp( class_name, tbuttonW ))
+        return FALSE;
+
+    name.Buffer = parent_class;
+    name.MaximumLength = sizeof(parent_class);
+    if (!NtUserGetClassName( parent, FALSE, &name )) return FALSE;
+    return !wcscmp( parent_class, tfrmsplashW );
+}
+
+/* PF-1x1 investigation: log window geometry for Pathfinder windows of interest.
+ * Answers "which window is 1x1" and "does show_window's parent-invisible gate
+ * fire for it" by recording the actual screen/client rects inline in the log. */
+static void pf_log_geom( const char *where, HWND hwnd )
+{
+    static const WCHAR tfrmsplashW[] = {'T','f','r','m','S','p','l','a','s','h',0};
+    static const WCHAR tapplicationW[] = {'T','A','p','p','l','i','c','a','t','i','o','n',0};
+    static const WCHAR tfrmmainW[] = {'T','f','r','m','M','a','i','n',0};
+    static const WCHAR winformsW[] = {'W','i','n','d','o','w','s','F','o','r','m','s',0};
+    WCHAR cls[256];
+    UNICODE_STRING name = { .Length = 0, .MaximumLength = sizeof(cls), .Buffer = cls };
+    HWND parent;
+    RECT wr = {0}, cr = {0};
+    DWORD style;
+
+    cls[0] = 0;
+    if (!NtUserGetClassName( hwnd, FALSE, &name )) return;
+    if (wcscmp( cls, tfrmsplashW ) && wcscmp( cls, tapplicationW ) &&
+        wcscmp( cls, tfrmmainW ) && wcsncmp( cls, winformsW, 12 ) &&
+        !is_pathfinder_splash_child( hwnd ))
+        return;
+
+    parent = NtUserGetAncestor( hwnd, GA_PARENT );
+    style = get_window_long( hwnd, GWL_STYLE );
+    get_window_rect( hwnd, &wr, get_thread_dpi() );
+    get_client_rect( hwnd, &cr, get_thread_dpi() );
+    wine_dbg_printf( "[PF-geom] %-16s hwnd=%p class=%s parent=%p parent_vis=%d vis=%d style=%08x win=%s client=%s\n",
+                     where, hwnd, debugstr_w(cls), parent,
+                     parent ? is_window_visible( parent ) : -1,
+                     (style & WS_VISIBLE) != 0, (unsigned int)style,
+                     wine_dbgstr_rect( &wr ), wine_dbgstr_rect( &cr ) );
+}
+
 static unsigned int set_startup_info_flags( unsigned int mask, unsigned int flags )
 {
     unsigned int prev, new;
@@ -4129,6 +4190,8 @@ BOOL set_window_pos( WINDOWPOS *winpos, int parent_x, int parent_y )
         }
     }
 
+    pf_log_geom( "set_window_pos", winpos->hwnd );
+
       /* And last, send the WM_WINDOWPOSCHANGED message */
 
     TRACE( "\tstatus flags = %04x\n", winpos->flags & SWP_AGG_STATUSFLAGS );
@@ -4997,12 +5060,17 @@ static BOOL show_window( HWND hwnd, INT cmd )
     if (parent && !is_window_visible( parent ) && !(swp & SWP_STATECHANGED))
     {
         /* if parent is not visible simply toggle WS_VISIBLE and return */
+        pf_log_geom( "show/gate-EARLY", hwnd );
         if (show_flag) set_window_style_bits( hwnd, WS_VISIBLE, 0 );
         else set_window_style_bits( hwnd, 0, WS_VISIBLE );
     }
     else
+    {
+        pf_log_geom( "show/gate-SETPOS", hwnd );
         NtUserSetWindowPos( hwnd, HWND_TOP, newPos.left, newPos.top,
                             newPos.right - newPos.left, newPos.bottom - newPos.top, swp );
+        pf_log_geom( "show/post-SETPOS", hwnd );
+    }
 
     new_style = get_window_long( hwnd, GWL_STYLE );
     if (((style ^ new_style) & WS_MINIMIZE) != 0)

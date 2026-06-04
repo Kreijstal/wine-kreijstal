@@ -6351,6 +6351,13 @@ GpStatus WINGDIPAPI GdipDrawString(GpGraphics *graphics, GDIPCONST WCHAR *string
 
     TRACE("(%p, %s, %i, %p, %s, %p, %p)\n", graphics, debugstr_wn(string, length),
         length, font, debugstr_rectf(rect), format, brush);
+    if (string && (wcsstr(string, L"Login") || wcsstr(string, L"Passwort") || wcsstr(string, L"Vollzugriff") ||
+        wcsstr(string, L"Viewer") || wcsstr(string, L"Automatische") || wcsstr(string, L"Lizenziert") ||
+        wcsstr(string, L"domain") || wcsstr(string, L"Domaine")))
+    {
+        wine_dbg_printf("[GdipDrawString] text=%s rect=%s format=%p brush=%p\n",
+                        debugstr_wn(string, length), debugstr_rectf(rect), format, brush);
+    }
 
     if(!graphics || !string || !font || !brush || !rect)
         return InvalidParameter;
@@ -6425,6 +6432,15 @@ GpStatus WINGDIPAPI GdipDrawString(GpGraphics *graphics, GDIPCONST WCHAR *string
         /* FIXME: If only the width or only the height is 0, we should probably still clip */
         rgn = CreatePolygonRgn(corners, 4, ALTERNATE);
         SelectClipRgn(hdc, rgn);
+        if (string && (wcsstr(string, L"Login") || wcsstr(string, L"Passwort") || wcsstr(string, L"Vollzugriff") ||
+            wcsstr(string, L"Viewer") || wcsstr(string, L"Automatische") || wcsstr(string, L"Lizenziert") ||
+            wcsstr(string, L"domain") || wcsstr(string, L"Domaine")))
+        {
+            wine_dbg_printf("[GdipDrawString] applied clip for %s scaled_rect=(%.2f,%.2f,%.2f,%.2f) corners=(%d,%d)(%d,%d)(%d,%d)(%d,%d)\n",
+                            debugstr_wn(string, length), scaled_rect.X, scaled_rect.Y, scaled_rect.Width, scaled_rect.Height,
+                            corners[0].x, corners[0].y, corners[1].x, corners[1].y,
+                            corners[2].x, corners[2].y, corners[3].x, corners[3].y);
+        }
     }
 
     get_font_hfont(graphics, font, format, &gdifont, NULL, NULL);

@@ -120,6 +120,7 @@ extern "C" {
 #define BCRYPT_SHA256_ALGORITHM     L"SHA256"
 #define BCRYPT_SHA384_ALGORITHM     L"SHA384"
 #define BCRYPT_SHA512_ALGORITHM     L"SHA512"
+#define BCRYPT_SP800108_CTR_HMAC_ALGORITHM L"SP800_108_CTR_HMAC"
 #define BCRYPT_TLS1_1_KDF_ALGORITHM L"TLS1_1_KDF"
 #define BCRYPT_TLS1_2_KDF_ALGORITHM L"TLS1_2_KDF"
 
@@ -221,6 +222,7 @@ static const WCHAR BCRYPT_SHA1_ALGORITHM[] = {'S','H','A','1',0};
 static const WCHAR BCRYPT_SHA256_ALGORITHM[] = {'S','H','A','2','5','6',0};
 static const WCHAR BCRYPT_SHA384_ALGORITHM[] = {'S','H','A','3','8','4',0};
 static const WCHAR BCRYPT_SHA512_ALGORITHM[] = {'S','H','A','5','1','2',0};
+static const WCHAR BCRYPT_SP800108_CTR_HMAC_ALGORITHM[] = {'S','P','8','0','0','_','1','0','8','_','C','T','R','_','H','M','A','C',0};
 static const WCHAR BCRYPT_TLS1_1_KDF_ALGORITHM[] = {'T','L','S','1','_','1','_','K','D','F',0};
 static const WCHAR BCRYPT_TLS1_2_KDF_ALGORITHM[] = {'T','L','S','1','_','2','_','K','D','F',0};
 

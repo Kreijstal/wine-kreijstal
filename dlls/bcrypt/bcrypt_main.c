@@ -89,6 +89,7 @@ enum alg_id
 
     /* key derivation */
     ALG_ID_PBKDF2,
+    ALG_ID_SP800108_CTR_HMAC,
     ALG_ID_TLS1_1_KDF,
     ALG_ID_TLS1_2_KDF,
 };
@@ -377,6 +378,7 @@ builtin_algorithms[] =
     { BCRYPT_DSA_ALGORITHM,        BCRYPT_SIGNATURE_INTERFACE,             0,      0,    0 },
     { BCRYPT_RNG_ALGORITHM,        BCRYPT_RNG_INTERFACE,                   0,      0,    0 },
     { BCRYPT_PBKDF2_ALGORITHM,     BCRYPT_KEY_DERIVATION_INTERFACE,      618,      0,    0 },
+    { BCRYPT_SP800108_CTR_HMAC_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE, 618,    0,    0 },
     { BCRYPT_TLS1_1_KDF_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE,      702,      0,    0 },
     { BCRYPT_TLS1_2_KDF_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE,      702,      0,    0 },
 };
@@ -501,7 +503,7 @@ static const struct algorithm pseudo_algorithms[] =
     {{ MAGIC_ALG }, ALG_ID_RSA_SIGN },
     {{ 0 }}, /* CAPI_KDF */
     {{ MAGIC_ALG }, ALG_ID_PBKDF2 },
-    {{ 0 }}, /* SP800108_CTR_HMAC */
+    {{ MAGIC_ALG }, ALG_ID_SP800108_CTR_HMAC },
     {{ 0 }}, /* SP80056A_CONCAT */
     {{ MAGIC_ALG }, ALG_ID_TLS1_1_KDF },
     {{ MAGIC_ALG }, ALG_ID_TLS1_2_KDF },
@@ -925,6 +927,7 @@ static NTSTATUS get_alg_property( const struct algorithm *alg, const WCHAR *prop
         return get_dsa_property( prop, buf, size, ret_size );
 
     case ALG_ID_PBKDF2:
+    case ALG_ID_SP800108_CTR_HMAC:
         return get_pbkdf2_property( prop, buf, size, ret_size );
 
     case ALG_ID_TLS1_1_KDF:
@@ -1615,6 +1618,7 @@ static NTSTATUS generate_symmetric_key( const struct algorithm *alg, const UCHAR
         break;
 
     case ALG_ID_PBKDF2:
+    case ALG_ID_SP800108_CTR_HMAC:
     case ALG_ID_TLS1_1_KDF:
     case ALG_ID_TLS1_2_KDF:
         if (secret_len > key_lengths.dwMaxLength / 8 || secret_len < key_lengths.dwMinLength / 8)
@@ -4170,6 +4174,8 @@ static NTSTATUS key_derivation_pbkdf2( const struct key *key, BCryptBufferDesc *
     UINT64 iterations = 10000;
     ULONG salt_len = 0, i;
     const UCHAR *salt = NULL;
+    const UCHAR *label = NULL, *context = NULL;
+    ULONG label_size = 0, context_size = 0;
 
     for (i = 0; i < desc->cBuffers; i++)
     {
@@ -4186,6 +4192,14 @@ static NTSTATUS key_derivation_pbkdf2( const struct key *key, BCryptBufferDesc *
             if (desc->pBuffers[i].cbBuffer != sizeof(iterations)) return STATUS_INVALID_PARAMETER;
             iterations = *(UINT64 *)desc->pBuffers[i].pvBuffer;
             break;
+        case KDF_LABEL:
+            label = desc->pBuffers[i].pvBuffer;
+            label_size = desc->pBuffers[i].cbBuffer;
+            break;
+        case KDF_CONTEXT:
+            context = desc->pBuffers[i].pvBuffer;
+            context_size = desc->pBuffers[i].cbBuffer;
+            break;
         default:
             WARN( "unexpected buffer type %lu\n", desc->pBuffers[i].BufferType );
             break;
@@ -4193,7 +4207,13 @@ static NTSTATUS key_derivation_pbkdf2( const struct key *key, BCryptBufferDesc *
     }
     if (!mac) return STATUS_INVALID_PARAMETER;
 
-    if (SymCryptPbkdf2( mac, key->s.secret, key->s.secret_len, salt, salt_len, iterations, output, output_len ))
+    if (key->alg_id == ALG_ID_SP800108_CTR_HMAC)
+    {
+        if (SymCryptSp800_108( mac, key->s.secret, key->s.secret_len, label, label_size,
+                               context, context_size, output, output_len ))
+            return STATUS_INTERNAL_ERROR;
+    }
+    else if (SymCryptPbkdf2( mac, key->s.secret, key->s.secret_len, salt, salt_len, iterations, output, output_len ))
         return STATUS_INTERNAL_ERROR;
 
     *ret_len = output_len;
@@ -4255,6 +4275,7 @@ NTSTATUS WINAPI BCryptKeyDerivation( BCRYPT_KEY_HANDLE handle, BCryptBufferDesc 
     switch (key->alg_id)
     {
     case ALG_ID_PBKDF2:
+    case ALG_ID_SP800108_CTR_HMAC:
         status = key_derivation_pbkdf2( key, desc, output, output_len, ret_len );
         break;
     case ALG_ID_TLS1_1_KDF:

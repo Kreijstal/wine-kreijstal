@@ -30,6 +30,29 @@ WINE_DEFAULT_DEBUG_CHANNEL(msg);
 
 #define MAX_ATOM_LEN  255
 
+static BOOL pathfinder_trace_paint_window( HWND hwnd )
+{
+    WCHAR class_name[256];
+    RECT rect;
+
+    if (!hwnd) return FALSE;
+    if (!GetClassNameW( hwnd, class_name, ARRAY_SIZE( class_name ))) return FALSE;
+
+    if (wcsncmp( class_name, L"Tcx", 3 ) && wcscmp( class_name, L"TfrmSplash" ) &&
+        wcscmp( class_name, L"TfrmError" ) && wcscmp( class_name, L"TPanel" ) &&
+        wcscmp( class_name, L"TLabel" ) && wcscmp( class_name, L"TEdit" ) &&
+        wcscmp( class_name, L"TComboBox" ) && wcscmp( class_name, L"TButton" ))
+        return FALSE;
+
+    if (!GetWindowRect( hwnd, &rect )) SetRectEmpty( &rect );
+    wine_dbg_printf( "[PathfinderPaint] hwnd=%p class=%s parent=%p id=%#Ix style=%08lx exstyle=%08lx visible=%d enabled=%d rect=(%d,%d)-(%d,%d)\n",
+                     hwnd, debugstr_w( class_name ), GetParent( hwnd ), GetWindowLongPtrW( hwnd, GWLP_ID ),
+                     GetWindowLongW( hwnd, GWL_STYLE ), GetWindowLongW( hwnd, GWL_EXSTYLE ),
+                     IsWindowVisible( hwnd ), IsWindowEnabled( hwnd ),
+                     rect.left, rect.top, rect.right, rect.bottom );
+    return TRUE;
+}
+
 /* pack a pointer into a 32/64 portable format */
 static inline ULONGLONG pack_ptr( const void *ptr )
 {
@@ -553,6 +576,9 @@ static LRESULT dispatch_send_message( struct win_proc_params *params, WPARAM wpa
     INPUT_MESSAGE_SOURCE prev_source = thread_info->msg_source;
     LRESULT retval = 0;
 
+    if (params->msg == WM_PAINT || params->msg == WM_PRINTCLIENT || params->msg == WM_ERASEBKGND)
+        pathfinder_trace_paint_window( params->hwnd );
+
     static const INPUT_MESSAGE_SOURCE msg_source_unavailable = { IMDT_UNAVAILABLE, IMO_UNAVAILABLE };
 
     /* params may contain arguments modified by wow, use original parameters instead */
@@ -797,6 +823,9 @@ static LRESULT dispatch_message( const MSG *msg, BOOL ansi )
     struct win_proc_params params;
     LRESULT retval = 0;
 
+    if (msg->message == WM_PAINT || msg->message == WM_PRINTCLIENT || msg->message == WM_ERASEBKGND)
+        pathfinder_trace_paint_window( msg->hwnd );
+
     if (!NtUserMessageCall( msg->hwnd, msg->message, msg->wParam, msg->lParam,
                             &params, NtUserGetDispatchParams, ansi )) return 0;
 
@@ -836,6 +865,7 @@ LRESULT WINAPI DECLSPEC_HOTPATCH DispatchMessageA( const MSG* msg )
     if (msg->message != WM_SYSTIMER && msg->message != WM_PAINT)
         return dispatch_message( msg, TRUE );
 
+    if (msg->message == WM_PAINT) pathfinder_trace_paint_window( msg->hwnd );
     return NtUserDispatchMessage( msg );
 }
 
@@ -889,6 +919,7 @@ LRESULT WINAPI DECLSPEC_HOTPATCH DispatchMessageW( const MSG* msg )
     if (msg->message != WM_SYSTIMER && msg->message != WM_PAINT)
         return dispatch_message( msg, FALSE );
 
+    if (msg->message == WM_PAINT) pathfinder_trace_paint_window( msg->hwnd );
     return NtUserDispatchMessage( msg );
 }
 

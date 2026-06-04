@@ -639,6 +639,8 @@ static BYTE *get_key_blob_ncrypt(const CERT_CONTEXT *ctx, DWORD *size)
     CERT_KEY_CONTEXT keyctx;
     DWORD ctx_size = sizeof(keyctx);
     NCRYPT_KEY_HANDLE key;
+    const WCHAR *blob_type = BCRYPT_RSAFULLPRIVATE_BLOB;
+    WCHAR alg_group[64];
     DWORD blob_size;
     BYTE *buf;
     SECURITY_STATUS status;
@@ -650,7 +652,11 @@ static BYTE *get_key_blob_ncrypt(const CERT_CONTEXT *ctx, DWORD *size)
 
     key = keyctx.hNCryptKey;
 
-    status = NCryptExportKey(key, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, NULL, 0, &blob_size, 0);
+    if (!NCryptGetProperty(key, NCRYPT_ALGORITHM_GROUP_PROPERTY, (BYTE *)alg_group, sizeof(alg_group), size, 0)
+            && !lstrcmpW(alg_group, BCRYPT_ECDSA_ALGORITHM))
+        blob_type = BCRYPT_ECCPRIVATE_BLOB;
+
+    status = NCryptExportKey(key, 0, blob_type, NULL, NULL, 0, &blob_size, 0);
     if (status)
     {
         TRACE("NCryptExportKey size query failed: %#lx\n", status);
@@ -659,7 +665,7 @@ static BYTE *get_key_blob_ncrypt(const CERT_CONTEXT *ctx, DWORD *size)
 
     if (!(buf = malloc(blob_size + MAX_LEAD_BYTES))) return NULL;
 
-    status = NCryptExportKey(key, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL, buf, blob_size, &blob_size, 0);
+    status = NCryptExportKey(key, 0, blob_type, NULL, buf, blob_size, &blob_size, 0);
     if (status)
     {
         TRACE("NCryptExportKey failed: %#lx\n", status);

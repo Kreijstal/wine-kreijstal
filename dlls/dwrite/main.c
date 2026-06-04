@@ -35,6 +35,36 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dwrite);
 
+static BOOL has_visible_text( const WCHAR *string, UINT32 length )
+{
+    UINT32 i;
+
+    if (!string || !length) return FALSE;
+    for (i = 0; i < length; ++i)
+    {
+        switch (string[i])
+        {
+        case 0:
+        case ' ':
+        case '\t':
+        case '\r':
+        case '\n':
+            break;
+        default:
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void log_textlayout_w( const char *func, const WCHAR *string, UINT32 length, FLOAT max_width, FLOAT max_height )
+{
+    if (!has_visible_text( string, length )) return;
+
+    wine_dbg_printf("[%s] width=%.2f height=%.2f text=%s\n", func, max_width, max_height,
+                    debugstr_wn( string, length ));
+}
+
 HMODULE dwrite_module = 0;
 static IDWriteFactory7 *shared_factory;
 static void release_shared_factory(IDWriteFactory7 *factory);
@@ -1252,6 +1282,7 @@ static HRESULT WINAPI dwritefactory_CreateTextLayout(IDWriteFactory7 *iface, WCH
     struct textlayout_desc desc;
 
     TRACE("%p, %s:%u, %p, %.8e, %.8e, %p.\n", iface, debugstr_wn(string, length), length, format, max_width, max_height, layout);
+    log_textlayout_w( "CreateTextLayout", string, length, max_width, max_height );
 
     desc.factory = iface;
     desc.string = string;
@@ -1274,6 +1305,7 @@ static HRESULT WINAPI dwritefactory_CreateGdiCompatibleTextLayout(IDWriteFactory
 
     TRACE("%p, %s:%u, %p, %.8e, %.8e, %.8e, %p, %d, %p.\n", iface, debugstr_wn(string, length), length, format,
             max_width, max_height, pixels_per_dip, transform, use_gdi_natural, layout);
+    log_textlayout_w( "CreateGdiCompatibleTextLayout", string, length, max_width, max_height );
 
     desc.factory = iface;
     desc.string = string;

@@ -81,8 +81,10 @@ MAKE_FUNCPTR(gnutls_x509_crt_export);
 MAKE_FUNCPTR(gnutls_x509_crt_import);
 MAKE_FUNCPTR(gnutls_x509_crt_init);
 MAKE_FUNCPTR(gnutls_x509_privkey_deinit);
+MAKE_FUNCPTR(gnutls_x509_privkey_export_ecc_raw);
 MAKE_FUNCPTR(gnutls_x509_privkey_export_rsa_raw2);
 MAKE_FUNCPTR(gnutls_x509_privkey_get_pk_algorithm2);
+MAKE_FUNCPTR(gnutls_x509_privkey_import_ecc_raw);
 MAKE_FUNCPTR(gnutls_x509_privkey_import_pkcs8);
 MAKE_FUNCPTR(gnutls_x509_privkey_import_rsa_raw);
 MAKE_FUNCPTR(gnutls_x509_privkey_init);
@@ -147,8 +149,10 @@ static NTSTATUS process_attach( void *args )
     LOAD_FUNCPTR(gnutls_x509_crt_import)
     LOAD_FUNCPTR(gnutls_x509_crt_init)
     LOAD_FUNCPTR(gnutls_x509_privkey_deinit)
+    LOAD_FUNCPTR(gnutls_x509_privkey_export_ecc_raw)
     LOAD_FUNCPTR(gnutls_x509_privkey_export_rsa_raw2)
     LOAD_FUNCPTR(gnutls_x509_privkey_get_pk_algorithm2)
+    LOAD_FUNCPTR(gnutls_x509_privkey_import_ecc_raw)
     LOAD_FUNCPTR(gnutls_x509_privkey_import_pkcs8)
     LOAD_FUNCPTR(gnutls_x509_privkey_import_rsa_raw)
     LOAD_FUNCPTR(gnutls_x509_privkey_init)
@@ -205,6 +209,21 @@ static struct cert_store_data *get_store_data( cert_store_data_t data )
     return (struct cert_store_data *)(ULONG_PTR)data;
 }
 
+static BOOL copy_fixed_datum( BYTE *dst, unsigned int size, const gnutls_datum_t *datum )
+{
+    if (datum->size == size)
+    {
+        memcpy( dst, datum->data, size );
+        return TRUE;
+    }
+    if (datum->size == size + 1 && !datum->data[0])
+    {
+        memcpy( dst, datum->data + 1, size );
+        return TRUE;
+    }
+    return FALSE;
+}
+
 static NTSTATUS import_store_key( void *args )
 {
     struct import_store_key_params *params = args;
@@ -219,6 +238,57 @@ static NTSTATUS import_store_key( void *args )
 
     if (!data->key) return STATUS_NOT_FOUND;
     bitlen = data->key_bitlen;
+
+    if (params->key_type == IMPORT_STORE_KEY_BCRYPT_ECCPRIVATE)
+    {
+        BCRYPT_ECCKEY_BLOB *hdr = params->buf;
+        gnutls_ecc_curve_t curve;
+        gnutls_datum_t x, y, k;
+        BYTE *dst;
+
+        if (bitlen != 256) return STATUS_NOT_SUPPORTED;
+
+        size = sizeof(*hdr) + 32 * 3;
+        if (!params->buf || *params->buf_size < size)
+        {
+            *params->buf_size = size;
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+
+        if ((ret = pgnutls_x509_privkey_export_ecc_raw( data->key, &curve, &x, &y, &k )) < 0)
+        {
+            pgnutls_perror( ret );
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        if (curve != GNUTLS_ECC_CURVE_SECP256R1)
+        {
+            free( x.data );
+            free( y.data );
+            free( k.data );
+            return STATUS_NOT_SUPPORTED;
+        }
+
+        hdr->dwMagic = BCRYPT_ECDSA_PRIVATE_P256_MAGIC;
+        hdr->cbKey = 32;
+        dst = (BYTE *)(hdr + 1);
+        memset( dst, 0, 32 * 3 );
+        if (!copy_fixed_datum( dst, 32, &x ) ||
+            !copy_fixed_datum( dst + 32, 32, &y ) ||
+            !copy_fixed_datum( dst + 64, 32, &k ))
+        {
+            free( x.data );
+            free( y.data );
+            free( k.data );
+            return STATUS_INVALID_PARAMETER;
+        }
+
+        free( x.data );
+        free( y.data );
+        free( k.data );
+        return STATUS_SUCCESS;
+    }
+    if (params->key_type != IMPORT_STORE_KEY_CAPI_RSA) return STATUS_NOT_SUPPORTED;
 
     size = sizeof(*hdr) + sizeof(*rsakey) + (bitlen * 9 / 16);
     if (!params->buf || *params->buf_size < size)
@@ -430,11 +500,14 @@ error:
     return status;
 }
 
+static size_t der_object_size( const unsigned char *data, size_t size );
+
 static NTSTATUS open_cert_store( void *args )
 {
     struct open_cert_store_params *params = args;
     gnutls_pkcs12_t p12 = NULL;
     gnutls_datum_t pfx_data;
+    size_t der_size;
     gnutls_x509_privkey_t key = NULL;
     gnutls_x509_crt_t *certs = NULL;
     unsigned int i, cert_count = 0, bitlen;
@@ -448,8 +521,12 @@ static NTSTATUS open_cert_store( void *args )
 
     if ((ret = pgnutls_pkcs12_init( &p12 )) < 0) goto error;
 
+    der_size = der_object_size( params->pfx->pbData, params->pfx->cbData );
+    if (der_size != params->pfx->cbData) TRACE( "trimming PFX import from %u to %u bytes\n",
+                                                params->pfx->cbData, (DWORD)der_size );
+
     pfx_data.data = params->pfx->pbData;
-    pfx_data.size = params->pfx->cbData;
+    pfx_data.size = der_size;
     if ((ret = pgnutls_pkcs12_import( p12, &pfx_data, GNUTLS_X509_FMT_DER, 0 )) < 0) goto error;
     if ((ret = pgnutls_pkcs12_verify_mac( p12, pwd ? pwd : "" )) < 0) goto error;
 
@@ -460,13 +537,6 @@ static NTSTATUS open_cert_store( void *args )
     if (key)
     {
         if ((ret = pgnutls_x509_privkey_get_pk_algorithm2( key, &bitlen )) < 0) goto error;
-
-        if (ret != GNUTLS_PK_RSA)
-        {
-            FIXME( "key algorithm %u not supported\n", ret );
-            status = STATUS_INVALID_PARAMETER;
-            goto done;
-        }
     }
 
     store_data = malloc( sizeof(*store_data) );
@@ -514,6 +584,26 @@ static NTSTATUS import_store_cert( void *args )
         return STATUS_INVALID_PARAMETER;
 
     return STATUS_SUCCESS;
+}
+
+static size_t der_object_size( const unsigned char *data, size_t size )
+{
+    size_t len = 0;
+    unsigned int len_len, i;
+
+    if (size < 2) return size;
+
+    if (!(data[1] & 0x80))
+    {
+        len = data[1];
+        return len <= size - 2 ? len + 2 : size;
+    }
+
+    len_len = data[1] & 0x7f;
+    if (!len_len || len_len > sizeof(len) || size < 2 + len_len) return size;
+
+    for (i = 0; i < len_len; i++) len = (len << 8) | data[2 + i];
+    return len <= size - 2 - len_len ? len + 2 + len_len : size;
 }
 
 static NTSTATUS close_cert_store( void *args )
@@ -565,42 +655,79 @@ static NTSTATUS export_cert_store( void *args )
         if ((ret = pgnutls_pkcs12_bag_set_crt( cert_bag, crt )) < 0) goto error;
     }
 
-    /* Import private key from BCRYPT_RSAKEY_BLOB if provided. */
+    /* Import private key from BCRYPT key blob if provided. */
     if (params->key_blob && params->key_blob_size)
     {
-        const BCRYPT_RSAKEY_BLOB *hdr = (const BCRYPT_RSAKEY_BLOB *)params->key_blob;
-        const BYTE *ptr = params->key_blob + sizeof(*hdr);
-        gnutls_datum_t m, e, d, p, q, u;
+        const BCRYPT_KEY_BLOB *hdr = (const BCRYPT_KEY_BLOB *)params->key_blob;
 
-        if (hdr->Magic != BCRYPT_RSAFULLPRIVATE_MAGIC)
+        if (hdr->Magic == BCRYPT_RSAFULLPRIVATE_MAGIC)
+        {
+            const BCRYPT_RSAKEY_BLOB *rsa_hdr = (const BCRYPT_RSAKEY_BLOB *)params->key_blob;
+            const BYTE *ptr = params->key_blob + sizeof(*rsa_hdr);
+            gnutls_datum_t m, e, d, p, q, u;
+
+            if (params->key_blob_size < sizeof(*rsa_hdr) + rsa_hdr->cbPublicExp + rsa_hdr->cbModulus +
+                                        rsa_hdr->cbPrime1 * 3 + rsa_hdr->cbPrime2 * 2 + rsa_hdr->cbModulus)
+            {
+                status = STATUS_INVALID_PARAMETER;
+                goto done;
+            }
+
+            /* Layout after header: PublicExp, Modulus, Prime1, Prime2, Exponent1, Exponent2, Coefficient, PrivateExponent */
+            e.data = (unsigned char *)ptr;                    e.size = rsa_hdr->cbPublicExp;
+            ptr += rsa_hdr->cbPublicExp;
+            m.data = (unsigned char *)ptr;                    m.size = rsa_hdr->cbModulus;
+            ptr += rsa_hdr->cbModulus;
+            p.data = (unsigned char *)ptr;                    p.size = rsa_hdr->cbPrime1;
+            ptr += rsa_hdr->cbPrime1;
+            q.data = (unsigned char *)ptr;                    q.size = rsa_hdr->cbPrime2;
+            ptr += rsa_hdr->cbPrime2;
+            /* Skip Exponent1 and Exponent2 - GnuTLS computes them. */
+            ptr += rsa_hdr->cbPrime1;  /* Exponent1 */
+            ptr += rsa_hdr->cbPrime2;  /* Exponent2 */
+            u.data = (unsigned char *)ptr;                    u.size = rsa_hdr->cbPrime1;
+            ptr += rsa_hdr->cbPrime1;
+            d.data = (unsigned char *)ptr;                    d.size = rsa_hdr->cbModulus;
+
+            if ((ret = pgnutls_x509_privkey_init( &key )) < 0) goto error;
+            if ((ret = pgnutls_x509_privkey_import_rsa_raw( key, &m, &e, &d, &p, &q, &u )) < 0)
+            {
+                pgnutls_x509_privkey_deinit( key );
+                key = NULL;
+                goto error;
+            }
+        }
+        else if (hdr->Magic == BCRYPT_ECDSA_PRIVATE_P256_MAGIC)
+        {
+            const BCRYPT_ECCKEY_BLOB *ecc_hdr = (const BCRYPT_ECCKEY_BLOB *)params->key_blob;
+            const BYTE *ptr = params->key_blob + sizeof(*ecc_hdr);
+            gnutls_datum_t x, y, d;
+
+            if (ecc_hdr->cbKey != 32 || params->key_blob_size < sizeof(*ecc_hdr) + ecc_hdr->cbKey * 3)
+            {
+                status = STATUS_INVALID_PARAMETER;
+                goto done;
+            }
+
+            x.data = (unsigned char *)ptr; x.size = ecc_hdr->cbKey;
+            ptr += ecc_hdr->cbKey;
+            y.data = (unsigned char *)ptr; y.size = ecc_hdr->cbKey;
+            ptr += ecc_hdr->cbKey;
+            d.data = (unsigned char *)ptr; d.size = ecc_hdr->cbKey;
+
+            if ((ret = pgnutls_x509_privkey_init( &key )) < 0) goto error;
+            if ((ret = pgnutls_x509_privkey_import_ecc_raw( key, GNUTLS_ECC_CURVE_SECP256R1, &x, &y, &d )) < 0)
+            {
+                pgnutls_x509_privkey_deinit( key );
+                key = NULL;
+                goto error;
+            }
+        }
+        else
         {
             WARN( "unexpected key blob magic %08lx\n", (unsigned long)hdr->Magic );
             status = STATUS_INVALID_PARAMETER;
             goto done;
-        }
-
-        /* Layout after header: PublicExp, Modulus, Prime1, Prime2, Exponent1, Exponent2, Coefficient, PrivateExponent */
-        e.data = (unsigned char *)ptr;                    e.size = hdr->cbPublicExp;
-        ptr += hdr->cbPublicExp;
-        m.data = (unsigned char *)ptr;                    m.size = hdr->cbModulus;
-        ptr += hdr->cbModulus;
-        p.data = (unsigned char *)ptr;                    p.size = hdr->cbPrime1;
-        ptr += hdr->cbPrime1;
-        q.data = (unsigned char *)ptr;                    q.size = hdr->cbPrime2;
-        ptr += hdr->cbPrime2;
-        /* Skip Exponent1 and Exponent2 - GnuTLS computes them. */
-        ptr += hdr->cbPrime1;  /* Exponent1 */
-        ptr += hdr->cbPrime2;  /* Exponent2 */
-        u.data = (unsigned char *)ptr;                    u.size = hdr->cbPrime1;
-        ptr += hdr->cbPrime1;
-        d.data = (unsigned char *)ptr;                    d.size = hdr->cbModulus;
-
-        if ((ret = pgnutls_x509_privkey_init( &key )) < 0) goto error;
-        if ((ret = pgnutls_x509_privkey_import_rsa_raw( key, &m, &e, &d, &p, &q, &u )) < 0)
-        {
-            pgnutls_x509_privkey_deinit( key );
-            key = NULL;
-            goto error;
         }
 
         /* Create key bag. */
@@ -621,22 +748,24 @@ static NTSTATUS export_cert_store( void *args )
 
     /* Export. */
     if ((ret = pgnutls_pkcs12_export2( p12, GNUTLS_X509_FMT_DER, &out )) < 0) goto error;
+    ret = der_object_size( out.data, out.size );
+    if (ret != out.size) TRACE( "trimming exported PFX from %u to %u bytes\n", out.size, ret );
 
     if (!params->pfx_data)
     {
         /* Size query. */
-        *params->pfx_size = out.size + 8;
+        *params->pfx_size = ret + 8;
         status = STATUS_SUCCESS;
     }
-    else if (*params->pfx_size < out.size)
+    else if (*params->pfx_size < ret)
     {
-        *params->pfx_size = out.size + 8;
+        *params->pfx_size = ret + 8;
         status = STATUS_BUFFER_TOO_SMALL;
     }
     else
     {
-        memcpy( params->pfx_data, out.data, out.size );
-        *params->pfx_size = out.size;
+        memcpy( params->pfx_data, out.data, ret );
+        *params->pfx_size = ret;
         status = STATUS_SUCCESS;
     }
     goto done;
@@ -1038,6 +1167,7 @@ static NTSTATUS wow64_import_store_key( void *args )
     struct
     {
         cert_store_data_t data;
+        DWORD key_type;
         PTR32 buf;
         PTR32 buf_size;
     } const *params32 = args;
@@ -1045,6 +1175,7 @@ static NTSTATUS wow64_import_store_key( void *args )
     struct import_store_key_params params =
     {
         params32->data,
+        params32->key_type,
         ULongToPtr( params32->buf ),
         ULongToPtr( params32->buf_size )
     };

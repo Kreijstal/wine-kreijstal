@@ -37,7 +37,7 @@ static HCRYPTPROV import_key( cert_store_data_t data, DWORD flags )
     HCRYPTKEY cryptkey;
     DWORD size, acquire_flags;
     void *key;
-    struct import_store_key_params params = { data, NULL, &size };
+    struct import_store_key_params params = { data, IMPORT_STORE_KEY_CAPI_RSA, NULL, &size };
 
     if (CRYPT32_CALL( import_store_key, &params ) != STATUS_BUFFER_TOO_SMALL) return 0;
 
@@ -66,6 +66,32 @@ static HCRYPTPROV import_key( cert_store_data_t data, DWORD flags )
     CryptDestroyKey( cryptkey );
     CryptMemFree( key );
     return prov;
+}
+
+static NCRYPT_KEY_HANDLE import_ncrypt_key( cert_store_data_t data )
+{
+    NCRYPT_PROV_HANDLE prov = 0;
+    NCRYPT_KEY_HANDLE key = 0;
+    DWORD size;
+    void *blob;
+    struct import_store_key_params params = { data, IMPORT_STORE_KEY_BCRYPT_ECCPRIVATE, NULL, &size };
+
+    if (CRYPT32_CALL( import_store_key, &params ) != STATUS_BUFFER_TOO_SMALL) return 0;
+
+    params.buf = blob = CryptMemAlloc( size );
+    if (!blob) return 0;
+
+    if (CRYPT32_CALL( import_store_key, &params ) ||
+        NCryptOpenStorageProvider( &prov, MS_KEY_STORAGE_PROVIDER, 0 ) ||
+        NCryptImportKey( prov, 0, BCRYPT_ECCPRIVATE_BLOB, NULL, &key, blob, size, 0 ))
+    {
+        WARN( "NCryptImportKey failed %08lx\n", GetLastError() );
+        key = 0;
+    }
+
+    if (prov) NCryptFreeObject( prov );
+    CryptMemFree( blob );
+    return key;
 }
 
 static BOOL set_key_context( const void *ctx, HCRYPTPROV prov )
@@ -145,6 +171,7 @@ HCERTSTORE WINAPI PFXImportCertStore( CRYPT_DATA_BLOB *pfx, const WCHAR *passwor
     unsigned int key_count = 0;
     HCERTSTORE store = NULL;
     HCRYPTPROV prov = 0;
+    NCRYPT_KEY_HANDLE ncrypt_key = 0;
     cert_store_data_t data = 0;
     struct open_cert_store_params open_params = { pfx, password, &data, &key_count };
     struct close_cert_store_params close_params;
@@ -167,8 +194,11 @@ HCERTSTORE WINAPI PFXImportCertStore( CRYPT_DATA_BLOB *pfx, const WCHAR *passwor
 
     if (key_count)
     {
-        prov = import_key( data, flags );
-        if (!prov) goto error;
+        if (!(ncrypt_key = import_ncrypt_key( data )))
+        {
+            prov = import_key( data, flags );
+            if (!prov) goto error;
+        }
     }
 
     if (!(store = CertOpenStore( CERT_STORE_PROV_MEMORY, 0, 0, 0, NULL )))
@@ -211,6 +241,14 @@ HCERTSTORE WINAPI PFXImportCertStore( CRYPT_DATA_BLOB *pfx, const WCHAR *passwor
                 goto error;
             }
         }
+        else if (ncrypt_key && !CertSetCertificateContextProperty( ctx, CERT_NCRYPT_KEY_HANDLE_PROP_ID,
+                                                                   CERT_STORE_NO_CRYPT_RELEASE_FLAG,
+                                                                   (void *)ncrypt_key ))
+        {
+            WARN( "failed to set ncrypt key property %08lx\n", GetLastError() );
+            CertFreeCertificateContext( ctx );
+            goto error;
+        }
         if (!CertAddCertificateContextToStore( store, ctx, CERT_STORE_ADD_ALWAYS, NULL ))
         {
             WARN( "CertAddCertificateContextToStore failed %08lx\n", GetLastError() );
@@ -225,6 +263,7 @@ HCERTSTORE WINAPI PFXImportCertStore( CRYPT_DATA_BLOB *pfx, const WCHAR *passwor
     return store;
 
 error:
+    if (ncrypt_key) NCryptFreeObject( ncrypt_key );
     if (prov) CryptReleaseContext( prov, 0 );
     CertCloseStore( store, 0 );
     close_params.data = data;
@@ -345,6 +384,21 @@ static BYTE *export_capi_key( HCRYPTPROV prov, DWORD key_spec, DWORD *out_size )
     return bcrypt_blob;
 }
 
+static const WCHAR *ncrypt_key_blob_type( NCRYPT_KEY_HANDLE key )
+{
+    WCHAR alg_group[64];
+    DWORD size;
+
+    if (!NCryptGetProperty( key, NCRYPT_ALGORITHM_GROUP_PROPERTY, (BYTE *)alg_group,
+                            sizeof(alg_group), &size, 0 ))
+    {
+        if (!lstrcmpW( alg_group, BCRYPT_ECDSA_ALGORITHM ))
+            return BCRYPT_ECCPRIVATE_BLOB;
+    }
+
+    return BCRYPT_RSAFULLPRIVATE_BLOB;
+}
+
 BOOL WINAPI PFXExportCertStoreEx( HCERTSTORE store, CRYPT_DATA_BLOB *pfx, const WCHAR *password, void *reserved,
                                   DWORD flags )
 {
@@ -367,6 +421,17 @@ BOOL WINAPI PFXExportCertStoreEx( HCERTSTORE store, CRYPT_DATA_BLOB *pfx, const 
 
     /* Find the first certificate in the store (may be NULL for empty stores). */
     cert = CertEnumCertificatesInStore( store, NULL );
+    if (cert && (flags & EXPORT_PRIVATE_KEYS))
+    {
+        for (;;)
+        {
+            key_ctx_size = sizeof(key_ctx);
+            if (CertGetCertificateContextProperty( cert, CERT_KEY_CONTEXT_PROP_ID, &key_ctx, &key_ctx_size ))
+                break;
+            cert = CertEnumCertificatesInStore( store, cert );
+            if (!cert) break;
+        }
+    }
 
     /* Get the private key if EXPORT_PRIVATE_KEYS is requested. */
     if (cert && (flags & EXPORT_PRIVATE_KEYS))
@@ -384,8 +449,10 @@ BOOL WINAPI PFXExportCertStoreEx( HCERTSTORE store, CRYPT_DATA_BLOB *pfx, const 
         }
         else if (key_ctx.dwKeySpec == CERT_NCRYPT_KEY_SPEC)
         {
+            const WCHAR *key_blob_type = ncrypt_key_blob_type( key_ctx.hNCryptKey );
+
             /* Query key blob size first. */
-            sec_status = NCryptExportKey( key_ctx.hNCryptKey, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL,
+            sec_status = NCryptExportKey( key_ctx.hNCryptKey, 0, key_blob_type, NULL,
                                           NULL, 0, &key_blob_size, 0 );
             if (sec_status)
             {
@@ -403,7 +470,7 @@ BOOL WINAPI PFXExportCertStoreEx( HCERTSTORE store, CRYPT_DATA_BLOB *pfx, const 
                 return FALSE;
             }
 
-            sec_status = NCryptExportKey( key_ctx.hNCryptKey, 0, BCRYPT_RSAFULLPRIVATE_BLOB, NULL,
+            sec_status = NCryptExportKey( key_ctx.hNCryptKey, 0, key_blob_type, NULL,
                                           key_blob, key_blob_size, &key_blob_size, 0 );
             if (sec_status)
             {
@@ -438,6 +505,11 @@ BOOL WINAPI PFXExportCertStoreEx( HCERTSTORE store, CRYPT_DATA_BLOB *pfx, const 
                 return FALSE;
             }
         }
+    }
+    else if (!cert && (flags & REPORT_NOT_ABLE_TO_EXPORT_PRIVATE_KEY))
+    {
+        SetLastError( NTE_NOT_FOUND );
+        return FALSE;
     }
 
     params.cert_data     = cert ? cert->pbCertEncoded : NULL;

@@ -88,6 +88,7 @@ enum alg_id
 
     /* key derivation */
     ALG_ID_PBKDF2,
+    ALG_ID_SP800108_CTR_HMAC,
 };
 
 #define HASH_FLAG_HMAC      0x01
@@ -371,6 +372,7 @@ builtin_algorithms[] =
     {  BCRYPT_DSA_ALGORITHM,        BCRYPT_SIGNATURE_INTERFACE,             0,      0,    0 },
     {  BCRYPT_RNG_ALGORITHM,        BCRYPT_RNG_INTERFACE,                   0,      0,    0 },
     {  BCRYPT_PBKDF2_ALGORITHM,     BCRYPT_KEY_DERIVATION_INTERFACE,      618,      0,    0 },
+    {  BCRYPT_SP800108_CTR_HMAC_ALGORITHM, BCRYPT_KEY_DERIVATION_INTERFACE, 618,    0,    0 },
 };
 
 static inline BOOL is_symmetric_alg( const struct algorithm *alg )
@@ -493,7 +495,7 @@ static const struct algorithm pseudo_algorithms[] =
     {{ MAGIC_ALG }, ALG_ID_RSA_SIGN },
     {{ 0 }}, /* CAPI_KDF */
     {{ MAGIC_ALG }, ALG_ID_PBKDF2 },
-    {{ 0 }}, /* SP800108_CTR_HMAC */
+    {{ MAGIC_ALG }, ALG_ID_SP800108_CTR_HMAC },
     {{ 0 }}, /* SP80056A_CONCAT */
     {{ 0 }}, /* TLS1_1_KDF */
     {{ 0 }}, /* TLS1_2_KDF */
@@ -913,6 +915,7 @@ static NTSTATUS get_alg_property( const struct algorithm *alg, const WCHAR *prop
         return get_dsa_property( alg->mode, prop, buf, size, ret_size );
 
     case ALG_ID_PBKDF2:
+    case ALG_ID_SP800108_CTR_HMAC:
         return get_pbkdf2_property( alg->mode, prop, buf, size, ret_size );
 
     default:
@@ -1595,6 +1598,7 @@ static NTSTATUS generate_symmetric_key( const struct algorithm *alg, const UCHAR
         break;
 
     case ALG_ID_PBKDF2:
+    case ALG_ID_SP800108_CTR_HMAC:
         if (secret_len > key_lengths.dwMaxLength / 8 || secret_len < key_lengths.dwMinLength / 8)
         {
             destroy_key( key );
@@ -4114,11 +4118,13 @@ NTSTATUS WINAPI BCryptKeyDerivation( BCRYPT_KEY_HANDLE handle, BCryptBufferDesc 
     UINT64 iterations = 10000;
     ULONG salt_len = 0, i;
     const UCHAR *salt = NULL;
+    const UCHAR *label = NULL, *context = NULL;
+    ULONG label_size = 0, context_size = 0;
 
     TRACE( "%p, %p, %p, %lu, %p, %#lx\n", key, desc, output, output_len, ret_len, flags );
 
     if (!key || !desc || !output || !ret_len) return STATUS_INVALID_PARAMETER;
-    if (key->alg_id != ALG_ID_PBKDF2)
+    if (key->alg_id != ALG_ID_PBKDF2 && key->alg_id != ALG_ID_SP800108_CTR_HMAC)
     {
         FIXME( "unsupported key %d\n", key->alg_id );
         return STATUS_NOT_IMPLEMENTED;
@@ -4139,6 +4145,14 @@ NTSTATUS WINAPI BCryptKeyDerivation( BCRYPT_KEY_HANDLE handle, BCryptBufferDesc 
             if (desc->pBuffers[i].cbBuffer != sizeof(iterations)) return STATUS_INVALID_PARAMETER;
             iterations = *(UINT64 *)desc->pBuffers[i].pvBuffer;
             break;
+        case KDF_LABEL:
+            label = desc->pBuffers[i].pvBuffer;
+            label_size = desc->pBuffers[i].cbBuffer;
+            break;
+        case KDF_CONTEXT:
+            context = desc->pBuffers[i].pvBuffer;
+            context_size = desc->pBuffers[i].cbBuffer;
+            break;
         default:
             FIXME( "buffer type %lu not supported\n", desc->pBuffers[i].BufferType );
             return STATUS_NOT_IMPLEMENTED;
@@ -4146,7 +4160,13 @@ NTSTATUS WINAPI BCryptKeyDerivation( BCRYPT_KEY_HANDLE handle, BCryptBufferDesc 
     }
     if (!mac) return STATUS_INVALID_PARAMETER;
 
-    if (SymCryptPbkdf2( mac, key->s.secret, key->s.secret_len, salt, salt_len, iterations, output, output_len ))
+    if (key->alg_id == ALG_ID_SP800108_CTR_HMAC)
+    {
+        if (SymCryptSp800_108( mac, key->s.secret, key->s.secret_len, label, label_size,
+                               context, context_size, output, output_len ))
+            return STATUS_INTERNAL_ERROR;
+    }
+    else if (SymCryptPbkdf2( mac, key->s.secret, key->s.secret_len, salt, salt_len, iterations, output, output_len ))
         return STATUS_INTERNAL_ERROR;
 
     *ret_len = output_len;

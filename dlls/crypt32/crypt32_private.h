@@ -489,9 +489,13 @@ struct open_cert_store_params
 struct import_store_key_params
 {
     cert_store_data_t data;
+    DWORD key_type;
     void *buf;
     DWORD *buf_size;
 };
+
+#define IMPORT_STORE_KEY_CAPI_RSA              0
+#define IMPORT_STORE_KEY_BCRYPT_ECCPRIVATE     1
 
 struct import_store_cert_params
 {

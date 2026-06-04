@@ -76,6 +76,9 @@ static int (*pgnutls_privkey_import_rsa_raw)(gnutls_privkey_t, const gnutls_datu
                                         const gnutls_datum_t *, const gnutls_datum_t *,
                                         const gnutls_datum_t *, const gnutls_datum_t *,
                                         const gnutls_datum_t *);
+static int (*pgnutls_privkey_import_ecc_raw)(gnutls_privkey_t, gnutls_ecc_curve_t,
+                                             const gnutls_datum_t *, const gnutls_datum_t *,
+                                             const gnutls_datum_t *);
 
 /* Not present in gnutls version < 3.4.0. */
 static int (*pgnutls_privkey_export_x509)(gnutls_privkey_t, gnutls_x509_privkey_t *);
@@ -1327,6 +1330,40 @@ static gnutls_x509_privkey_t get_x509_key(ULONG key_size, const BYTE *key_blob)
     int ret;
 
     if (key_size < sizeof(*hdr)) return NULL;
+    if (hdr->Magic == BCRYPT_ECDSA_PRIVATE_P256_MAGIC)
+    {
+        const BCRYPT_ECCKEY_BLOB *ecc_hdr = (const BCRYPT_ECCKEY_BLOB *)key_blob;
+        const BYTE *ecc_ptr = key_blob + sizeof(*ecc_hdr);
+        gnutls_datum_t x, y, k;
+
+        if (ecc_hdr->cbKey != 32 || key_size < sizeof(*ecc_hdr) + ecc_hdr->cbKey * 3)
+        {
+            TRACE("invalid ECC key blob size %u key size %u\n", (unsigned)key_size, (unsigned)ecc_hdr->cbKey);
+            return NULL;
+        }
+
+        x.data = (unsigned char *)ecc_ptr; x.size = ecc_hdr->cbKey;
+        ecc_ptr += ecc_hdr->cbKey;
+        y.data = (unsigned char *)ecc_ptr; y.size = ecc_hdr->cbKey;
+        ecc_ptr += ecc_hdr->cbKey;
+        k.data = (unsigned char *)ecc_ptr; k.size = ecc_hdr->cbKey;
+
+        if ((ret = pgnutls_privkey_init(&key)) < 0)
+        {
+            pgnutls_perror(ret);
+            return NULL;
+        }
+
+        if (((ret = pgnutls_privkey_import_ecc_raw(key, GNUTLS_ECC_CURVE_SECP256R1, &x, &y, &k)) < 0) ||
+             (ret = pgnutls_privkey_export_x509(key, &x509key)) < 0)
+        {
+            pgnutls_perror(ret);
+            pgnutls_privkey_deinit(key);
+            return NULL;
+        }
+
+        return x509key;
+    }
     if (hdr->Magic != BCRYPT_RSAFULLPRIVATE_MAGIC)
     {
         TRACE("unexpected magic %#x\n", (unsigned)hdr->Magic);
@@ -1566,6 +1603,11 @@ static NTSTATUS process_attach( void *args )
     {
         WARN("gnutls_privkey_import_rsa_raw not found\n");
         pgnutls_privkey_import_rsa_raw = compat_gnutls_privkey_import_rsa_raw;
+    }
+    if (!(pgnutls_privkey_import_ecc_raw = dlsym(libgnutls_handle, "gnutls_privkey_import_ecc_raw")))
+    {
+        ERR("gnutls_privkey_import_ecc_raw not found\n");
+        return STATUS_DLL_NOT_FOUND;
     }
 
     ret = pgnutls_global_init();

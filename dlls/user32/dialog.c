@@ -862,12 +862,15 @@ INT_PTR WINAPI DialogBoxParamW( HINSTANCE hInst, LPCWSTR name,
     HWND hwnd;
     HRSRC hrsrc;
     LPCDLGTEMPLATEW ptr;
+    WCHAR caption[256];
 
     if (owner && !IsWindow(owner)) return 0;
 
     if (!(hrsrc = FindResourceW( hInst, name, (LPWSTR)RT_DIALOG ))) return -1;
     if (!(ptr = LoadResource(hInst, hrsrc))) return -1;
     if (!(hwnd = DIALOG_CreateIndirect( hInst, ptr, owner, dlgProc, param, TRUE, &owner ))) return -1;
+    GetWindowTextW( hwnd, caption, ARRAY_SIZE(caption) );
+    wine_dbg_printf("[DialogBoxParamW] hwnd=%p caption=%s\n", hwnd, debugstr_w(caption));
     return DIALOG_DoDialogBox( hwnd, owner );
 }
 
@@ -879,8 +882,16 @@ INT_PTR WINAPI DialogBoxIndirectParamAorW( HINSTANCE hInstance, LPCVOID template
                                            HWND owner, DLGPROC dlgProc,
                                            LPARAM param, DWORD flags )
 {
-    HWND hwnd = DIALOG_CreateIndirect( hInstance, template, owner, dlgProc, param, !flags, &owner );
-    if (hwnd) return DIALOG_DoDialogBox( hwnd, owner );
+    HWND hwnd;
+    WCHAR caption[256];
+
+    hwnd = DIALOG_CreateIndirect( hInstance, template, owner, dlgProc, param, !flags, &owner );
+    if (hwnd)
+    {
+        GetWindowTextW( hwnd, caption, ARRAY_SIZE(caption) );
+        wine_dbg_printf("[DialogBoxIndirect] hwnd=%p caption=%s\n", hwnd, debugstr_w(caption));
+        return DIALOG_DoDialogBox( hwnd, owner );
+    }
     return -1;
 }
 

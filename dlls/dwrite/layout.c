@@ -32,6 +32,29 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dwrite);
 
+static void log_dwrite_draw_text( const char *func, const WCHAR *text, UINT32 length, FLOAT origin_x, FLOAT origin_y )
+{
+    UINT32 i;
+
+    if (!text || !length) return;
+    for (i = 0; i < length; ++i)
+    {
+        switch (text[i])
+        {
+        case 0:
+        case ' ':
+        case '\t':
+        case '\r':
+        case '\n':
+            break;
+        default:
+            wine_dbg_printf("[%s] x=%.2f y=%.2f text=%s\n", func, origin_x, origin_y,
+                            debugstr_wn( text, length ));
+            return;
+        }
+    }
+}
+
 enum layout_range_attr_kind {
     LAYOUT_RANGE_ATTR_WEIGHT,
     LAYOUT_RANGE_ATTR_STYLE,
@@ -4042,6 +4065,9 @@ static HRESULT WINAPI dwritetextlayout_Draw(IDWriteTextLayout4 *iface,
         descr.clusterMap = run->clustermap;
         descr.textPosition += run->start;
 
+        log_dwrite_draw_text( "DWrite.DrawGlyphRun", descr.string, descr.stringLength,
+                              run->origin.x + run->align_dx + origin_x,
+                              SNAP_COORD(run->origin.y + origin_y) );
         /* return value is ignored */
         IDWriteTextRenderer_DrawGlyphRun(renderer,
             context,

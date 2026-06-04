@@ -3678,7 +3678,8 @@ LRESULT editor_handle_message( ME_TextEditor *editor, UINT msg, WPARAM wParam,
     ME_InternalDeleteText(editor, &cursor, ME_GetTextLength(editor), FALSE);
     if (lParam)
     {
-      TRACE("WM_SETTEXT lParam==%Ix\n",lParam);
+      if (((WCHAR*)lParam)[0])
+        wine_dbg_printf("[Richedit WM_SETTEXT] text=%s\n", debugstr_w((WCHAR*)lParam));
       if (!strncmp((char *)lParam, "{\\rtf", 5) ||
           !strncmp((char *)lParam, "{\\urtf", 6))
       {

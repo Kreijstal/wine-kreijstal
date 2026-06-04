@@ -58,6 +58,34 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(bidi);
 
+static void log_gdi_text_w( const char *func, INT x, INT y, UINT flags, const RECT *rect,
+                            const WCHAR *str, UINT count )
+{
+    UINT i;
+
+    if (!str || !count) return;
+    if (flags & ETO_GLYPH_INDEX) return;
+
+    for (i = 0; i < count; ++i)
+    {
+        switch (str[i])
+        {
+        case 0:
+        case ' ':
+        case '\t':
+        case '\r':
+        case '\n':
+            break;
+        default:
+            wine_dbg_printf("[%s] x=%d y=%d flags=%08x rect=(%ld,%ld)-(%ld,%ld) text=%s\n", func, x, y, flags,
+                            rect ? rect->left : 0, rect ? rect->top : 0,
+                            rect ? rect->right : 0, rect ? rect->bottom : 0,
+                            debugstr_wn( str, count ));
+            return;
+        }
+    }
+}
+
 /* HELPER FUNCTIONS AND DECLARATIONS */
 
 /* Wine_GCPW Flags */
@@ -961,6 +989,7 @@ BOOL WINAPI ExtTextOutW( HDC hdc, INT x, INT y, UINT flags, const RECT *rect,
     BOOL ret;
 
     if (count > INT_MAX) return FALSE;
+    log_gdi_text_w( "ExtTextOutW", x, y, flags, rect, str, count );
     if (is_meta_dc( hdc )) return METADC_ExtTextOut( hdc, x, y, flags, rect, str, count, dx );
     if (!(dc_attr = get_dc_attr( hdc ))) return FALSE;
     if (dc_attr->print) print_call_start_page( dc_attr );

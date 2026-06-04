@@ -458,7 +458,13 @@ HWND WINAPI DECLSPEC_HOTPATCH CreateWindowExW( DWORD exStyle, LPCWSTR className,
     cs.lpszClass      = className;
     cs.dwExStyle      = exStyle;
 
-    return wow_handlers.create_window( &cs, className, instance, TRUE );
+    {
+        HWND ret;
+        ret = wow_handlers.create_window( &cs, className, instance, TRUE );
+        wine_dbg_printf("[CreateWindowExW] hwnd=%p class=%s name=%s exStyle=%08lx style=%08lx parent=%p\n",
+                        ret, debugstr_w(className), debugstr_w(windowName), exStyle, style, parent);
+        return ret;
+    }
 }
 
 
@@ -1143,6 +1149,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH SetWindowTextW( HWND hwnd, LPCWSTR lpString )
         SetLastError( ERROR_INVALID_PARAMETER );
         return FALSE;
     }
+    wine_dbg_printf("[SetWindowTextW] hwnd=%p text=%s\n", hwnd, debugstr_w(lpString));
     if (!WIN_IsCurrentProcess( hwnd ))
         WARN( "setting text %s of other process window %p should not use SendMessage\n",
                debugstr_w(lpString), hwnd );

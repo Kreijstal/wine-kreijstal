@@ -118,6 +118,7 @@ static void MSGBOX_OnInit(HWND hwnd, LPMSGBOXPARAMSW lpmb)
         NtUserSetWindowPos( hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE );
 
     TRACE_(msgbox)("%s\n", debugstr_w(lpszText));
+    wine_dbg_printf("[MessageBox] caption=%s text=%s\\n", debugstr_w(buffer ? buffer : lpmb->lpszCaption), debugstr_w(lpszText));
     SetWindowTextW(GetDlgItem(hwnd, MSGBOX_IDTEXT), lpszText);
 
     /* Remove not selected buttons and assign the WS_GROUP style to the first button */

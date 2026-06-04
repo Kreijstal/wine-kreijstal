@@ -33,6 +33,9 @@ struct key
 {
     enum algid algid;
     BCRYPT_KEY_HANDLE bcrypt_key;
+    WCHAR *blob_type;
+    BYTE *blob;
+    DWORD blob_size;
 };
 
 struct storage_provider

@@ -32,10 +32,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dwmapi);
 
-static const WCHAR wine_dwm_extended_frame_prop[] =
-    {'_','_','w','i','n','e','_','d','w','m','_','e','x','t','e','n','d','e','d','_','f','r','a','m','e',0};
-
-
 /**********************************************************************
  *           DwmIsCompositionEnabled         (DWMAPI.@)
  */
@@ -71,23 +67,11 @@ HRESULT WINAPI DwmEnableComposition(UINT uCompositionAction)
  */
 HRESULT WINAPI DwmExtendFrameIntoClientArea(HWND hwnd, const MARGINS* margins)
 {
-    BOOL enabled;
-
     TRACE("(%p, %p) margins %d,%d,%d,%d\n", hwnd, margins,
           margins ? margins->cxLeftWidth : 0, margins ? margins->cxRightWidth : 0,
           margins ? margins->cyTopHeight : 0, margins ? margins->cyBottomHeight : 0);
 
     if (!IsWindow(hwnd)) return E_HANDLE;
-
-    enabled = margins && (margins->cxLeftWidth || margins->cxRightWidth ||
-                          margins->cyTopHeight || margins->cyBottomHeight);
-    if (enabled)
-        SetPropW(hwnd, wine_dwm_extended_frame_prop, (HANDLE)1);
-    else
-        RemovePropW(hwnd, wine_dwm_extended_frame_prop);
-
-    SetWindowPos(hwnd, 0, 0, 0, 0, 0,
-                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
 
     return S_OK;
 }

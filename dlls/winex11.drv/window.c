@@ -503,6 +503,12 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
     return ret;
 }
 
+static BOOL has_custom_nc_caption( const struct window_rects *rects, DWORD style )
+{
+    return (style & WS_VISIBLE) && !(style & WS_CHILD) && (style & WS_CAPTION) == WS_CAPTION &&
+           !IsRectEmpty( &rects->window ) && rects->client.top <= rects->window.top;
+}
+
 
 /***********************************************************************
  *              get_mwm_decorations
@@ -510,6 +516,7 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
 static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD style, DWORD ex_style )
 {
     if (NtUserGetProp( data->hwnd, wine_dwm_extended_frame_prop )) return 0;
+    if (has_custom_nc_caption( &data->rects, style )) return 0;
     if (EqualRect( &data->rects.window, &data->rects.visible )) return 0;
     return get_mwm_decorations_for_style( style, ex_style );
 }
@@ -3225,7 +3232,8 @@ BOOL X11DRV_GetWindowStyleMasks( HWND hwnd, UINT style, UINT ex_style, UINT *sty
 
     if ((data = get_win_data( hwnd )))
     {
-        if (!data->managed) decor = 0;
+        if (!data->managed || NtUserGetProp( hwnd, wine_dwm_extended_frame_prop ) ||
+            has_custom_nc_caption( &data->rects, style )) decor = 0;
         release_win_data( data );
     }
 
@@ -3322,6 +3330,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     }
 
     window_set_wm_state( data, get_desired_wm_state( new_style, new_rects ), activate );
+    if (has_custom_nc_caption( new_rects, new_style )) set_wm_hints( data );
     if (!data->wm_state_serial && data->pending_state.wm_state != WithdrawnState)
     {
         if (swp_flags & (SWP_FRAMECHANGED | SWP_STATECHANGED)) set_wm_hints( data );

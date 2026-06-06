@@ -2058,7 +2058,9 @@ static RECT get_visible_rect( HWND hwnd, BOOL shaped, UINT style, UINT ex_style,
     RECT visible_rect, rect = {0};
 
     if (get_present_rect( hwnd, &rect, get_thread_dpi() )) return rect;
-    if (IsRectEmpty( &rects->window ) || EqualRect( &rects->window, &rects->client ) || shaped || !decorated_mode) return rects->window;
+    if (IsRectEmpty( &rects->window ) || EqualRect( &rects->window, &rects->client ) || shaped || !decorated_mode ||
+        (!(style & WS_CHILD) && (style & WS_CAPTION) == WS_CAPTION && rects->client.top <= rects->window.top))
+        return rects->window;
     if (!user_driver->pGetWindowStyleMasks( hwnd, style, ex_style, &style_mask, &ex_style_mask )) return rects->window;
     if (!NtUserAdjustWindowRect( &rect, style & style_mask, FALSE, ex_style & ex_style_mask, dpi )) return rects->window;
 

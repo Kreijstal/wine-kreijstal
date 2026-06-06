@@ -56,6 +56,9 @@
 WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
 WINE_DECLARE_DEBUG_CHANNEL(systray);
 
+static const WCHAR wine_dwm_extended_frame_prop[] =
+    {'_','_','w','i','n','e','_','d','w','m','_','e','x','t','e','n','d','e','d','_','f','r','a','m','e',0};
+
 #define _NET_WM_MOVERESIZE_SIZE_TOPLEFT      0
 #define _NET_WM_MOVERESIZE_SIZE_TOP          1
 #define _NET_WM_MOVERESIZE_SIZE_TOPRIGHT     2
@@ -506,6 +509,7 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
  */
 static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD style, DWORD ex_style )
 {
+    if (NtUserGetProp( data->hwnd, wine_dwm_extended_frame_prop )) return 0;
     if (EqualRect( &data->rects.window, &data->rects.visible )) return 0;
     return get_mwm_decorations_for_style( style, ex_style );
 }

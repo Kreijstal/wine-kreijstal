@@ -56,6 +56,9 @@
 WINE_DEFAULT_DEBUG_CHANNEL(x11drv);
 WINE_DECLARE_DEBUG_CHANNEL(systray);
 
+static const WCHAR wine_dwm_extended_frame_prop[] =
+    {'_','_','w','i','n','e','_','d','w','m','_','e','x','t','e','n','d','e','d','_','f','r','a','m','e',0};
+
 #define _NET_WM_MOVERESIZE_SIZE_TOPLEFT      0
 #define _NET_WM_MOVERESIZE_SIZE_TOP          1
 #define _NET_WM_MOVERESIZE_SIZE_TOPRIGHT     2
@@ -506,6 +509,7 @@ static unsigned long get_mwm_decorations_for_style( DWORD style, DWORD ex_style 
  */
 static unsigned long get_mwm_decorations( struct x11drv_win_data *data, DWORD style, DWORD ex_style )
 {
+    if (NtUserGetProp( data->hwnd, wine_dwm_extended_frame_prop )) return 0;
     if (EqualRect( &data->rects.window, &data->rects.visible )) return 0;
     return get_mwm_decorations_for_style( style, ex_style );
 }
@@ -1399,32 +1403,6 @@ static void window_set_net_wm_state( struct x11drv_win_data *data, UINT new_stat
     }
 }
 
-static BOOL get_window_net_frame_extents( Display *display, Window window, RECT *extents )
-{
-    static Atom frame_extents_atom;
-    unsigned long count, remaining;
-    unsigned long *value;
-    int format;
-    Atom type;
-    BOOL ret = FALSE;
-
-    SetRectEmpty( extents );
-    if (!frame_extents_atom && !(frame_extents_atom = XInternAtom( display, "_NET_FRAME_EXTENTS", True )))
-        return FALSE;
-
-    if (!XGetWindowProperty( display, window, frame_extents_atom, 0, 4, False, XA_CARDINAL,
-                             &type, &format, &count, &remaining, (unsigned char **)&value ))
-    {
-        if (type == XA_CARDINAL && format == 32 && count >= 4)
-        {
-            SetRect( extents, value[0], value[2], value[1], value[3] );
-            ret = TRUE;
-        }
-        XFree( value );
-    }
-    return ret;
-}
-
 static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL above )
 {
     UINT style = NtUserGetWindowLongW( data->hwnd, GWL_STYLE ), mask = 0;
@@ -1432,7 +1410,6 @@ static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL abo
     BOOL old_above = data->pending_state.above;
     XWindowChanges changes;
     RECT *new_rect = &rect;
-    RECT frame_extents;
 
     /* resizing a managed maximized window is not allowed */
     if ((style & WS_MAXIMIZE) && data->managed)
@@ -1444,14 +1421,6 @@ static void window_set_config( struct x11drv_win_data *data, RECT rect, BOOL abo
     if (data->whole_window == root_window || data->embedded)
     {
         OffsetRect( new_rect, old_rect->left - new_rect->left, old_rect->top - new_rect->top );
-    }
-    else if (data->managed && get_window_net_frame_extents( data->display, data->whole_window, &frame_extents ))
-    {
-        int wine_top = data->rects.visible.top - data->rects.window.top;
-        int dy = frame_extents.top - wine_top;
-
-        if (dy)
-            OffsetRect( new_rect, 0, dy );
     }
 
     data->desired_state.rect = *new_rect;

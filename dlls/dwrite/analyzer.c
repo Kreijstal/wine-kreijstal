@@ -1415,10 +1415,49 @@ done:
 static HRESULT WINAPI dwritetextanalyzer_AnalyzeNumberSubstitution(IDWriteTextAnalyzer2 *iface,
     IDWriteTextAnalysisSource* source, UINT32 position, UINT32 length, IDWriteTextAnalysisSink* sink)
 {
-    static int once;
+    UINT32 end = position + length, run_length;
+    IDWriteNumberSubstitution *substitution;
+    HRESULT hr;
 
-    if (!once++)
-        FIXME("(%p %u %u %p): stub\n", source, position, length, sink);
+    TRACE("%p, %u, %u, %p.\n", source, position, length, sink);
+
+    while (position < end)
+    {
+        substitution = NULL;
+        run_length = 0;
+
+        hr = IDWriteTextAnalysisSource_GetNumberSubstitution(source, position, &run_length, &substitution);
+        WARN("GetNumberSubstitution position %u hr %#lx run_length %u substitution %p.\n",
+                position, hr, run_length, substitution);
+        if (hr == E_NOTIMPL)
+            return S_OK;
+        if (FAILED(hr))
+            return hr;
+
+        run_length = min(run_length, end - position);
+        if (!run_length)
+            break;
+
+        if (!substitution)
+        {
+            static const WCHAR locale_en_us[] = L"en-us";
+
+            hr = create_numbersubstitution(DWRITE_NUMBER_SUBSTITUTION_METHOD_NONE,
+                    locale_en_us, TRUE, &substitution);
+            if (FAILED(hr))
+                return hr;
+        }
+
+        hr = IDWriteTextAnalysisSink_SetNumberSubstitution(sink, position, run_length, substitution);
+        WARN("SetNumberSubstitution position %u run_length %u substitution %p hr %#lx.\n",
+                position, run_length, substitution, hr);
+        IDWriteNumberSubstitution_Release(substitution);
+        if (FAILED(hr))
+            return hr;
+
+        position += run_length;
+    }
+
     return S_OK;
 }
 

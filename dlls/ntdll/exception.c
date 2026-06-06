@@ -291,6 +291,24 @@ NTSTATUS WINAPI dispatch_exception( EXCEPTION_RECORD *rec, CONTEXT *context )
            rec->ExceptionFlags, rec->ExceptionAddress );
     for (i = 0; i < min( EXCEPTION_MAXIMUM_PARAMETERS, rec->NumberParameters ); i++)
         TRACE( " info[%ld]=%p\n", i, (void *)rec->ExceptionInformation[i] );
+    if (rec->ExceptionCode == 0xeedfade && rec->NumberParameters > 1 && rec->ExceptionInformation[1])
+    {
+        const WCHAR *msg = NULL;
+        const ULONG_PTR *obj = (const ULONG_PTR *)rec->ExceptionInformation[1];
+
+        __TRY
+        {
+            msg = (const WCHAR *)obj[1];
+            if (msg) WARN( "Delphi exception object=%p message=%s\n",
+                           (void *)obj, debugstr_w(msg) );
+            else WARN( "Delphi exception object=%p message=NULL\n", (void *)obj );
+        }
+        __EXCEPT_PAGE_FAULT
+        {
+            WARN( "Delphi exception object=%p message unreadable\n", (void *)obj );
+        }
+        __ENDTRY
+    }
     TRACE_CONTEXT( context );
 
     if (call_vectored_handlers( rec, context ) == EXCEPTION_CONTINUE_EXECUTION)

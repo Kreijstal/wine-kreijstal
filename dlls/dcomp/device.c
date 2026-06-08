@@ -75,6 +75,7 @@ static HRESULT STDMETHODCALLTYPE device_QueryInterface(IDCompositionDevice *ifac
     }
     else if ((device->version >= 2
               && (IsEqualGUID(iid, &IID_IDCompositionDevice2)
+                  || IsEqualGUID(iid, &IID_IDCompositionDevice3)
                   || IsEqualGUID(iid, &IID_IDCompositionDesktopDevice)))
               || IsEqualGUID(iid, &IID_IDCompositionDesktopDevicePartner)
               || IsEqualGUID(iid, &IID_IDCompositionDeviceUnknown))

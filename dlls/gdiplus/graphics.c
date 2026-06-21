@@ -6171,7 +6171,12 @@ GpStatus WINGDIPAPI GdipMeasureString(GpGraphics *graphics,
     if(!graphics || !string || !font || !rect || !bounds)
         return InvalidParameter;
 
-    if(!has_gdi_dc(graphics))
+    /* A graphics object may outlive the HDC it was created from (the caller
+     * deleted the DC but kept measuring text with the graphics). Windows still
+     * returns the natural text bounds in that case; fall back to a temporary
+     * DC so measurement does not silently produce an empty rectangle, which
+     * would make size-to-fit loops in the caller spin forever. */
+    if(!has_gdi_dc(graphics) || (graphics->hdc && !GetObjectType(graphics->hdc)))
     {
         hdc = temp_hdc = CreateCompatibleDC(0);
         if (!temp_hdc) return OutOfMemory;

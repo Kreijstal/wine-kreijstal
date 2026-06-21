@@ -23,6 +23,39 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(certutil);
 
+static HRESULT add_store(const WCHAR *store_name, const WCHAR *cert_file, DWORD system_store)
+{
+    PCCERT_CONTEXT cert_context = NULL;
+    HCERTSTORE source_store = NULL, dest_store = NULL;
+    HRESULT hres = S_OK;
+    BOOL ret;
+
+    ret = CryptQueryObject(CERT_QUERY_OBJECT_FILE, cert_file, CERT_QUERY_CONTENT_FLAG_CERT,
+                           CERT_QUERY_FORMAT_FLAG_ALL, 0, NULL, NULL, NULL,
+                           &source_store, NULL, (const void **)&cert_context);
+    if (!ret || !cert_context)
+    {
+        hres = HRESULT_FROM_WIN32(GetLastError());
+        goto done;
+    }
+
+    dest_store = CertOpenStore(CERT_STORE_PROV_SYSTEM_W, 0, 0, system_store, store_name);
+    if (!dest_store)
+    {
+        hres = HRESULT_FROM_WIN32(GetLastError());
+        goto done;
+    }
+
+    if (!CertAddCertificateContextToStore(dest_store, cert_context, CERT_STORE_ADD_REPLACE_EXISTING, NULL))
+        hres = HRESULT_FROM_WIN32(GetLastError());
+
+done:
+    if (dest_store) CertCloseStore(dest_store, 0);
+    if (cert_context) CertFreeCertificateContext(cert_context);
+    if (source_store) CertCloseStore(source_store, 0);
+    return hres;
+}
+
 static HRESULT decode_hex(const WCHAR *from, const WCHAR *into)
 {
     HRESULT hres = S_OK;
@@ -88,10 +121,34 @@ static HRESULT decode_hex(const WCHAR *from, const WCHAR *into)
 int __cdecl wmain(int argc, WCHAR *argv[])
 {
     HRESULT hres = -1;
+    DWORD system_store = CERT_SYSTEM_STORE_CURRENT_USER;
+    const WCHAR *store_name, *cert_file;
     int i;
 
     if (argc == 4 && !wcscmp(argv[1], L"-decodehex"))
         hres = decode_hex(argv[2], argv[3]);
+    else if (argc >= 4 && !wcsicmp(argv[1], L"-addstore"))
+    {
+        i = 2;
+        while (i < argc && argv[i][0] == '-')
+        {
+            if (!wcsicmp(argv[i], L"-user"))
+                system_store = CERT_SYSTEM_STORE_CURRENT_USER;
+            else if (!wcsicmp(argv[i], L"-f"))
+                ;
+            else
+                break;
+            i++;
+        }
+        if (argc - i != 2)
+            hres = E_INVALIDARG;
+        else
+        {
+            store_name = argv[i];
+            cert_file = argv[i + 1];
+            hres = add_store(store_name, cert_file, system_store);
+        }
+    }
     else /* not a recognized command */
     {
         WINE_FIXME("stub:");

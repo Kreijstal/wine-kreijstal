@@ -64,6 +64,7 @@ makedepends=(
   'libxxf86vm'
   'mingw-w64-gcc'
   'ocl-icd'
+  'opencl-headers'
   'sdl2-compat'
   'v4l-utils'
   'vulkan-headers'

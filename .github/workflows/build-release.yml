@@ -20,6 +20,11 @@ jobs:
     steps:
       - name: Install package tools
         run: |
+          # The wine-kreijstal-git package pulls lib32-* build deps, which live
+          # in the [multilib] repo. It is disabled by default in the archlinux
+          # image, so enable it before syncing or makepkg fails with
+          # "target not found: lib32-*".
+          printf '\n[multilib]\nInclude = /etc/pacman.d/mirrorlist\n' >> /etc/pacman.conf
           pacman -Syu --noconfirm --needed \
             base-devel git ccache sudo
 
@@ -86,6 +91,12 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # The i386 builds of krb5-multidev and libpcap0.8-dev cannot be
+          # unpacked on the hosted runner: dpkg-deb aborts every time with
+          # "paste subprocess killed by signal (Broken pipe)" (deterministic for
+          # these two .debs, while every other i386 package unpacks fine). Wine
+          # does not force --with-pcap/--with-krb5, so omit the 32-bit pcap/krb5
+          # -dev packages; configure simply disables those for the 32-bit build.
           sudo apt-get install -y --no-install-recommends \
             build-essential gcc-multilib g++-multilib ccache flex bison \
             mingw-w64-tools gcc-mingw-w64-i686 gcc-mingw-w64-x86-64 \
@@ -107,15 +118,15 @@ jobs:
             libpulse-dev libpulse-dev:i386 \
             libdbus-1-dev libdbus-1-dev:i386 \
             libgnutls28-dev libgnutls28-dev:i386 \
-            libgstreamer1.0-dev libgstreamer1.0-dev:i386 \
-            libgstreamer-plugins-base1.0-dev libgstreamer-plugins-base1.0-dev:i386 \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
             libsdl2-dev libsdl2-dev:i386 \
             libv4l-dev libv4l-dev:i386 \
-            libopencl-dev ocl-icd-opencl-dev ocl-icd-opencl-dev:i386 \
-            libpcap-dev libpcap-dev:i386 \
+            opencl-headers ocl-icd-opencl-dev ocl-icd-opencl-dev:i386 \
+            libpcap-dev \
             libusb-1.0-0-dev libusb-1.0-0-dev:i386 \
             libudev-dev libudev-dev:i386 \
-            libkrb5-dev libkrb5-dev:i386 \
+            libkrb5-dev \
             unixodbc-dev unixodbc-dev:i386 \
             libunwind-dev libunwind-dev:i386
 
@@ -169,7 +180,7 @@ jobs:
             CXX="ccache g++ -m32" \
             i386_CC="ccache i686-w64-mingw32-gcc" \
             --with-x \
-            --with-gstreamer \
+            --without-gstreamer \
             --with-alsa \
             --with-pulse \
             --with-dbus \

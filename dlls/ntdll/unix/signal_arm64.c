@@ -1113,6 +1113,34 @@ static BOOL handle_syscall_fault( struct thread_data *data, ucontext_t *context,
 
 
 /**********************************************************************
+ *              emulate_x18_teb_load
+ */
+static BOOL emulate_x18_teb_load( struct thread_data *data, ucontext_t *sigcontext )
+{
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+    ULONG instr;
+    unsigned int rt, rn, rm;
+
+    if (REGn_sig(18, sigcontext)) return FALSE;
+
+    instr = *(ULONG *)PC_sig(sigcontext);
+    rt = instr & 0x1f;
+    rn = (instr >> 5) & 0x1f;
+    rm = (instr >> 16) & 0x1f;
+
+    if ((instr & 0xffe0fc00) == 0x78606800 && rn == 18)  /* ldrh Wt, [x18, Xm] */
+    {
+        if (rt != 31) REGn_sig(rt, sigcontext) = *(USHORT *)((BYTE *)data->teb + REGn_sig(rm, sigcontext));
+        REGn_sig(18, sigcontext) = (ULONG_PTR)data->teb;
+        PC_sig(sigcontext) += 4;
+        return TRUE;
+    }
+#endif
+    return FALSE;
+}
+
+
+/**********************************************************************
  *		segv_handler
  *
  * Handler for SIGSEGV and related errors.
@@ -1159,6 +1187,7 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
          rec.ExceptionInformation[0] == EXCEPTION_WRITE_FAULT) &&
         !REGn_sig(18, sigcontext) && (ULONG_PTR)siginfo->si_addr < 0x10000)
     {
+        if (emulate_x18_teb_load( data, sigcontext )) return;
         REGn_sig(18, sigcontext) = REGn_sig(28, sigcontext) ? REGn_sig(28, sigcontext) : (ULONG_PTR)data->teb;
         return;
     }

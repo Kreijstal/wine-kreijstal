@@ -459,6 +459,9 @@ do
     AS_VAR_COPY([CXXFLAGS],[${wine_arch}_CXXFLAGS])
     AS_VAR_COPY([LDFLAGS],[${wine_arch}_LDFLAGS])
     AS_VAR_SET([${wine_arch}_EXTRACFLAGS],["-D__WINE_PE_BUILD -Wall"])
+    case $HOST_ARCH-$host_os-$wine_arch in
+      aarch64-darwin*-aarch64) AS_VAR_APPEND([${wine_arch}_EXTRACFLAGS],[" -D__WINE_DARWIN_ARM64_HOST -ffixed-x28"]) ;;
+    esac
 
     target=""
     set x $CC
@@ -992,7 +995,10 @@ case $host_os in
     AC_SUBST(SECURITY_LIBS,"-framework Security -framework CoreFoundation")
     AC_SUBST(SYSTEMCONFIGURATION_LIBS,"-framework SystemConfiguration")
 
-    WINELOADER_LDFLAGS="-Wl,-segalign,0x1000,-pagezero_size,0x1000,-sectcreate,__TEXT,__info_plist,loader/wine_info.plist"
+    case $HOST_ARCH in
+      aarch64) WINELOADER_LDFLAGS="-Wl,-sectcreate,__TEXT,__info_plist,loader/wine_info.plist" ;;
+      *)       WINELOADER_LDFLAGS="-Wl,-segalign,0x1000,-pagezero_size,0x1000,-sectcreate,__TEXT,__info_plist,loader/wine_info.plist" ;;
+    esac
 
     case $HOST_ARCH in
       i386) wine_use_preloader=yes ;;

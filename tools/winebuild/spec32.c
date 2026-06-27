@@ -350,12 +350,14 @@ static void output_relay_debug( struct exports *exports )
             }
             output( "\tadd x2, sp, #16\n");
             output( "\tstp x8, x9, [SP,#-16]!\n" );
+            output( "\tstr x18, [SP,#-16]!\n" );
             output( "\tmov w1, #%u\n", odp->u.func.args_str_offset << 16 );
             if (i - exports->base) output( "\tadd w1, w1, #%u\n", i - exports->base );
             output( "\tadrp x0, .L__wine_spec_relay_descr\n" );
             output( "\tadd x0, x0, #:lo12:.L__wine_spec_relay_descr\n" );
             output( "\tldr x3, [x0, #8]\n");
             output( "\tblr x3\n");
+            output( "\tldr x18, [SP],#16\n" );
             output( "\tmov sp, x29\n" );
             output( "\tldp x29, x30, [sp], #%u\n", stack_size + 16 );
             output( "\tret\n");

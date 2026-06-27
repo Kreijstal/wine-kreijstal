@@ -39,6 +39,12 @@
 WINE_DEFAULT_DEBUG_CHANNEL(seh);
 WINE_DECLARE_DEBUG_CHANNEL(relay);
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+# define ARM64_TEB_REG "x28"
+#else
+# define ARM64_TEB_REG "x18"
+#endif
+
 
 /*******************************************************************
  *         syscalls
@@ -363,7 +369,7 @@ __ASM_GLOBAL_FUNC( KiUserCallbackDispatcher,
                    ".seh_handler user_callback_handler, @except\n\t"
                    "ldr x0, [sp]\n\t"             /* args */
                    "ldp w1, w2, [sp, #0x08]\n\t"  /* len, id */
-                   "ldr x3, [x18, 0x60]\n\t"      /* peb */
+                   "ldr x3, [" ARM64_TEB_REG ", 0x60]\n\t" /* peb */
                    "ldr x3, [x3, 0x58]\n\t"       /* peb->KernelCallbackTable */
                    "ldr x15, [x3, x2, lsl #3]\n\t"
                    "blr x15\n\t"
@@ -764,7 +770,7 @@ __ASM_GLOBAL_FUNC( RtlRaiseException,
                    "ldr w2, [x1]\n\t"            /* context->ContextFlags */
                    "orr w2, w2, #0x20000000\n\t" /* CONTEXT_UNWOUND_TO_CALL */
                    "str w2, [x1]\n\t"
-                   "ldr x3, [x18, #0x60]\n\t"    /* peb */
+                   "ldr x3, [" ARM64_TEB_REG ", #0x60]\n\t" /* peb */
                    "ldrb w2, [x3, #2]\n\t"       /* peb->BeingDebugged */
                    "cbnz w2, 1f\n\t"
                    "bl dispatch_exception\n"
@@ -868,7 +874,7 @@ __ASM_GLOBAL_FUNC( DbgUiRemoteBreakin,
                    ".seh_save_fplr_x 16\n\t"
                    ".seh_endprologue\n\t"
                    ".seh_handler DbgUiRemoteBreakin_handler, @except\n\t"
-                   "ldr x0, [x18, #0x60]\n\t"       /* NtCurrentTeb()->Peb */
+                   "ldr x0, [" ARM64_TEB_REG ", #0x60]\n\t" /* NtCurrentTeb()->Peb */
                    "ldrb w0, [x0, 0x02]\n\t"        /* peb->BeingDebugged */
                    "cbz w0, 1f\n\t"
                    "bl DbgBreakPoint\n"

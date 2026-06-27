@@ -61,6 +61,12 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(seh);
 
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+# define ARM64_TEB_REG "x28"
+#else
+# define ARM64_TEB_REG "x18"
+#endif
+
 #define NTDLL_DWARF_H_NO_UNWINDER
 #include "dwarf.h"
 
@@ -776,6 +782,9 @@ static void setup_raise_exception( struct thread_data *data, ucontext_t *sigcont
     SP_sig(sigcontext) = (ULONG_PTR)stack;
     PC_sig(sigcontext) = (ULONG_PTR)pKiUserExceptionDispatcher;
     REGn_sig(18, sigcontext) = (ULONG_PTR)data->teb;
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+    REGn_sig(28, sigcontext) = (ULONG_PTR)data->teb;
+#endif
 }
 
 
@@ -883,24 +892,24 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
                    "stp d12, d13, [x29, #0x80]\n\t"
                    "stp d14, d15, [x29, #0x90]\n\t"
                    "stp x1, x2, [x29, #0xa0]\n\t" /* ret_ptr, ret_len */
-                   "mov x18, x4\n\t"              /* teb */
+                   "mov " ARM64_TEB_REG ", x4\n\t" /* teb */
                    "mrs x1, fpcr\n\t"
                    "mrs x2, fpsr\n\t"
                    "bfi x1, x2, #0, #32\n\t"
-                   "ldr x2, [x18]\n\t"            /* teb->Tib.ExceptionList */
+                   "ldr x2, [" ARM64_TEB_REG "]\n\t" /* teb->Tib.ExceptionList */
                    "stp x1, x2, [x29, #0xb0]\n\t"
 
-                   "ldr x7, [x18, #0x378]\n\t"    /* thread_data->syscall_frame */
+                   "ldr x7, [" ARM64_TEB_REG ", #0x378]\n\t" /* thread_data->syscall_frame */
                    "sub x1, sp, #0x330\n\t"       /* sizeof(struct syscall_frame) */
-                   "str x1, [x18, #0x378]\n\t"    /* thread_data->syscall_frame */
+                   "str x1, [" ARM64_TEB_REG ", #0x378]\n\t" /* thread_data->syscall_frame */
                    "add x8, x29, #0xd0\n\t"
                    "stp x7, x8, [x1, #0x110]\n\t" /* frame->prev_frame,syscall_cfa */
-                   "ldr w11, [x18, #0x380]\n\t"   /* thread_data->syscall_trace */
+                   "ldr w11, [" ARM64_TEB_REG ", #0x380]\n\t" /* thread_data->syscall_trace */
                    "cbnz x11, 1f\n\t"
                    /* switch to user stack */
                    "mov sp, x0\n\t"               /* user_sp */
                    "br x3\n"
-                   "1:\tmov x19, x18\n\t"         /* teb */
+                   "1:\tmov x19, " ARM64_TEB_REG "\n\t" /* teb */
                    "mov x20, x0\n\t"              /* user_sp */
                    "mov x21, x3\n\t"              /* func */
                    "mov sp, x1\n\t"
@@ -908,7 +917,7 @@ __ASM_GLOBAL_FUNC( call_user_mode_callback,
                    "ldp w2, w0, [x20, #8]\n\t"    /* len, id */
                    "str x0, [x29, #0xc0]\n\t"     /* id */
                    "bl " __ASM_NAME("trace_usercall") "\n\t"
-                   "mov x18, x19\n\t"             /* teb */
+                   "mov " ARM64_TEB_REG ", x19\n\t" /* teb */
                    "mov sp, x20\n\t"              /* user_sp */
                    "br x21" )
 
@@ -1092,6 +1101,9 @@ static BOOL handle_syscall_fault( struct thread_data *data, ucontext_t *context,
         TRACE( "returning to user mode ip=%p ret=%08x\n", (void *)frame->pc, rec->ExceptionCode );
         REGn_sig(0, context)  = rec->ExceptionCode;
         REGn_sig(18, context) = (ULONG_PTR)data->teb;
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+        REGn_sig(28, context) = (ULONG_PTR)data->teb;
+#endif
         SP_sig(context)       = (ULONG_PTR)frame;
         PC_sig(context)       = (ULONG_PTR)__wine_syscall_dispatcher_return;
         return TRUE;
@@ -1141,6 +1153,16 @@ static void segv_handler( int signal, siginfo_t *siginfo, void *_sigcontext )
     }
     rec.ExceptionInformation[1] = (ULONG_PTR)siginfo->si_addr;
     rec.NumberParameters = 2;
+
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+    if ((rec.ExceptionInformation[0] == EXCEPTION_READ_FAULT ||
+         rec.ExceptionInformation[0] == EXCEPTION_WRITE_FAULT) &&
+        !REGn_sig(18, sigcontext) && (ULONG_PTR)siginfo->si_addr < 0x10000)
+    {
+        REGn_sig(18, sigcontext) = REGn_sig(28, sigcontext) ? REGn_sig(28, sigcontext) : (ULONG_PTR)data->teb;
+        return;
+    }
+#endif
 
     if (!virtual_handle_fault( data, &rec, (void *)SP_sig(sigcontext) )) return;
     if (handle_syscall_fault( data, sigcontext, &rec )) return;
@@ -1532,6 +1554,9 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, TEB *teb )
     context.X0  = (DWORD64)entry;
     context.X1  = (DWORD64)arg;
     context.X18 = (DWORD64)teb;
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+    context.X[28] = (DWORD64)teb;
+#endif
     context.Sp  = (DWORD64)teb->Tib.StackBase;
     context.Pc  = (DWORD64)pRtlUserThreadStart;
 
@@ -1572,13 +1597,18 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, TEB *teb )
 
     ctx = (CONTEXT *)((ULONG_PTR)context.Sp & ~15) - 1;
     *ctx = context;
-    ctx->ContextFlags = CONTEXT_FULL;
+    ctx->ContextFlags = CONTEXT_FULL | CONTEXT_ARM64_X18;
     signal_set_full_context( ctx );
 
+    ctx->X[18]   = (ULONG64)teb;
     frame->sp    = (ULONG64)ctx;
     frame->pc    = (ULONG64)pLdrInitializeThunk;
     frame->x[0]  = (ULONG64)ctx;
     frame->x[18] = (ULONG64)teb;
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+    frame->x[28] = (ULONG64)teb;
+#endif
+    frame->restore_flags |= CONTEXT_ARM64_X18;
     syscall_frame_fixup_for_fastpath( frame );
 
     pthread_sigmask( SIG_UNBLOCK, &server_block_set, NULL );
@@ -1619,9 +1649,15 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
                    "1:\tstr wzr, [x4, #0x10c]\n\t" /* frame->restore_flags */
                    "stp xzr, x5, [x4, #0x110]\n\t" /* frame->prev_frame,syscall_cfa */
                    /* switch to kernel stack */
+                   "mov x19, x4\n\t"            /* syscall frame */
                    "mov sp, x4\n\t"
                    "bl " __ASM_NAME("init_syscall_frame") "\n\t"
-                   "b " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
+                   "ldr x0, [x19]\n\t"          /* frame->x[0] */
+                   "ldr x18, [x19, #0x90]\n\t"  /* frame->x[18] */
+                   "mov x28, x18\n\t"
+                   "ldp x16, x17, [x19, #0xf8]\n\t" /* frame->sp, frame->pc */
+                   "mov sp, x16\n\t"
+                   "br x17" )
 
 
 /***********************************************************************
@@ -1629,7 +1665,7 @@ __ASM_GLOBAL_FUNC( signal_start_thread,
  */
 __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "hint 34\n\t" /* bti c */
-                   "ldr x10, [x18, #0x378]\n\t" /* thread_data->syscall_frame */
+                   "ldr x10, [" ARM64_TEB_REG ", #0x378]\n\t" /* thread_data->syscall_frame */
                    "stp x18, x19, [x10, #0x90]\n\t"
                    "stp x20, x21, [x10, #0xa0]\n\t"
                    "stp x22, x23, [x10, #0xb0]\n\t"
@@ -1680,7 +1716,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    __ASM_CFI(".cfi_offset 28, -0x68\n\t")
                    "and x20, x8, #0xfff\n\t"    /* syscall number */
                    "ubfx x21, x8, #12, #2\n\t"  /* syscall table number */
-                   "ldr x16, [x18, #0x370]\n\t" /* thread_data->syscall_table */
+                   "ldr x16, [" ARM64_TEB_REG ", #0x370]\n\t" /* thread_data->syscall_table */
                    "add x21, x16, x21, lsl #5\n\t"
                    "ldr x16, [x21, #16]\n\t"    /* table->ServiceLimit */
                    "cmp x20, x16\n\t"
@@ -1698,7 +1734,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "cbnz x9, 1b\n"
                    "2:\tldr x16, [x21]\n\t"     /* table->ServiceTable */
                    "ldr x23, [x16, x20, lsl 3]\n\t"
-                   "ldr w11, [x18, #0x380]\n\t" /* thread_data->syscall_trace */
+                   "ldr w11, [" ARM64_TEB_REG ", #0x380]\n\t" /* thread_data->syscall_trace */
                    "cbnz x11, " __ASM_LOCAL_LABEL("trace_syscall") "\n\t"
                    "blr x23\n\t"
                    "mov sp, x22\n"
@@ -1726,6 +1762,9 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "ldp x24, x25, [sp, #0xc0]\n\t"
                    "ldp x26, x27, [sp, #0xd0]\n\t"
                    "ldp x28, x29, [sp, #0xe0]\n\t"
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+                   "mov x18, x28\n\t"
+#endif
                    "tbz x16, #2, 1f\n\t"        /* CONTEXT_FLOATING_POINT */
                    "ldp q0,  q1,  [sp, #0x130]\n\t"
                    "ldp q2,  q3,  [sp, #0x150]\n\t"
@@ -1785,7 +1824,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher,
                    "b " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
 
 __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_return,
-                   "ldr w11, [x18, #0x380]\n\t" /* thread_data->syscall_trace */
+                   "ldr w11, [" ARM64_TEB_REG ", #0x380]\n\t" /* thread_data->syscall_trace */
                    "cbnz x11, " __ASM_LOCAL_LABEL("trace_syscall_ret") "\n\t"
                    "b " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") )
 
@@ -1795,7 +1834,7 @@ __ASM_GLOBAL_FUNC( __wine_syscall_dispatcher_return,
  */
 __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
                    "hint 34\n\t" /* bti c */
-                   "ldr x10, [x18, #0x378]\n\t" /* thread_data->syscall_frame */
+                   "ldr x10, [" ARM64_TEB_REG ", #0x378]\n\t" /* thread_data->syscall_frame */
                    "stp x18, x19, [x10, #0x90]\n\t"
                    "stp x20, x21, [x10, #0xa0]\n\t"
                    "stp x22, x23, [x10, #0xb0]\n\t"
@@ -1834,6 +1873,9 @@ __ASM_GLOBAL_FUNC( __wine_unix_call_dispatcher,
                    "cbnz w16, " __ASM_LOCAL_LABEL("__wine_syscall_dispatcher_return") "\n\t"
                    __ASM_CFI_CFA_IS_AT2(sp, 0x98, 0x02) /* frame->syscall_cfa */
                    "ldp x18, x19, [sp, #0x90]\n\t"
+#if defined(__WINE_DARWIN_ARM64_HOST) || (defined(__APPLE__) && defined(__aarch64__))
+                   "mov x18, x28\n\t"
+#endif
                    "ldp x16, x17, [sp, #0xf8]\n\t"
                    /* switch to user stack */
                    "mov sp, x16\n\t"

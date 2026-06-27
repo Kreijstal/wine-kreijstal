@@ -2596,11 +2596,24 @@ static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
 {
     return (struct _TEB *)__readfsdword( 0x18 );
 }
+#elif (defined(__aarch64__) || defined(__arm64ec__)) && defined(__GNUC__) && defined(__WINE_DARWIN_ARM64_HOST)
+register struct _TEB *__wine_current_teb __asm__("x28");
+static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
+{
+    return __wine_current_teb;
+}
 #elif (defined(__aarch64__) || defined(__arm64ec__)) && defined(__GNUC__)
 register struct _TEB *__wine_current_teb __asm__("x18");
 static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
 {
     return __wine_current_teb;
+}
+#elif (defined(__aarch64__) || defined(__arm64ec__)) && defined(_MSC_VER) && defined(__WINE_DARWIN_ARM64_HOST)
+static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)
+{
+    struct _TEB *teb;
+    __asm__( "mov %0, x28" : "=r" (teb) );
+    return teb;
 }
 #elif (defined(__aarch64__) || defined(__arm64ec__)) && defined(_MSC_VER)
 static FORCEINLINE struct _TEB * WINAPI NtCurrentTeb(void)

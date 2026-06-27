@@ -1145,6 +1145,7 @@ SOURCES = \
 	wine/svcctl.idl \
 	wine/test.h \
 	wine/unixlib.h \
+	wine/user_shared_data.h \
 	wine/vulkan.h \
 	wine/vulkan_driver.h \
 	wine/wgl.h \

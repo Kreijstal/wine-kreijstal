@@ -35,11 +35,12 @@
 #include "psapi.h"
 #include "ddk/wdm.h"
 #include "wine/asm.h"
+#include "wine/user_shared_data.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(process);
 
-static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
+static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)WINE_USER_SHARED_DATA_ADDRESS;
 
 typedef struct
 {

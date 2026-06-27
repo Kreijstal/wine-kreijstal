@@ -60,6 +60,9 @@
 #endif
 #include <unistd.h>
 #include <dlfcn.h>
+#if defined(__APPLE__) && defined(__aarch64__)
+# include <pthread.h>
+#endif
 #ifdef HAVE_VALGRIND_VALGRIND_H
 # include <valgrind/valgrind.h>
 #endif
@@ -89,6 +92,7 @@
 #include "wine/list.h"
 #include "wine/rbtree.h"
 #include "unix_private.h"
+#include "wine/user_shared_data.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(virtual);
@@ -202,7 +206,7 @@ static void *host_addr_space_limit;  /* top of the host virtual address space */
 static struct file_view *arm64ec_view;
 
 ULONG_PTR user_space_wow_limit = 0;
-struct _KUSER_SHARED_DATA *user_shared_data = (void *)0x7ffe0000;
+struct _KUSER_SHARED_DATA *user_shared_data = (void *)WINE_USER_SHARED_DATA_ADDRESS;
 
 /* TEB allocation blocks */
 static void *teb_block;
@@ -261,6 +265,30 @@ static inline BOOL is_vprot_exec_write( BYTE vprot )
     return (vprot & VPROT_EXEC) && (vprot & (VPROT_WRITE | VPROT_WRITECOPY));
 }
 
+static inline int get_mmap_flags( BYTE vprot )
+{
+#if defined(__APPLE__) && defined(__aarch64__) && defined(MAP_JIT)
+    if (is_vprot_exec_write( vprot )) return MAP_JIT;
+#endif
+    return 0;
+}
+
+static inline BOOL is_jit_write_protected_vprot( BYTE vprot )
+{
+#if defined(__APPLE__) && defined(__aarch64__) && defined(MAP_JIT)
+    return is_vprot_exec_write( vprot );
+#else
+    return FALSE;
+#endif
+}
+
+static inline void set_jit_write_protect( BOOL enable )
+{
+#if defined(__APPLE__) && defined(__aarch64__) && defined(MAP_JIT)
+    pthread_jit_write_protect_np( enable );
+#endif
+}
+
 /* mmap() anonymous memory at a fixed address */
 void *anon_mmap_fixed( void *start, size_t size, int prot, int flags )
 {
@@ -276,6 +304,13 @@ void *anon_mmap_alloc( size_t size, int prot )
     assert( !(size & host_page_mask) );
 
     return mmap( NULL, size, prot, MAP_PRIVATE | MAP_ANON, -1, 0 );
+}
+
+static void *anon_mmap_alloc_flags( size_t size, int prot, int flags )
+{
+    assert( !(size & host_page_mask) );
+
+    return mmap( NULL, size, prot, MAP_PRIVATE | MAP_ANON | flags, -1, 0 );
 }
 
 #ifdef USE_UFFD_WRITEWATCH
@@ -1543,11 +1578,11 @@ static struct wine_rb_entry *find_view_inside_range( void **base_ptr, void **end
  * retrying inside it, and return where it actually succeeded, or NULL.
  */
 static void* try_map_free_area( void *base, void *end, ptrdiff_t step,
-                                void *start, size_t size, int unix_prot )
+                                void *start, size_t size, int unix_prot, int mmap_flags )
 {
     while (start && base <= start && (char*)start + size <= (char*)end)
     {
-        if (anon_mmap_tryfixed( start, size, unix_prot, 0 ) != MAP_FAILED) return start;
+        if (anon_mmap_tryfixed( start, size, unix_prot, mmap_flags ) != MAP_FAILED) return start;
         TRACE( "Found free area is already mapped, start %p.\n", start );
         if (errno != EEXIST)
         {
@@ -1572,7 +1607,8 @@ static void* try_map_free_area( void *base, void *end, ptrdiff_t step,
  * Find a free area between views inside the specified range and map it.
  * virtual_mutex must be held by caller.
  */
-static void *map_free_area( void *base, void *end, size_t size, int top_down, int unix_prot, size_t align_mask )
+static void *map_free_area( void *base, void *end, size_t size, int top_down, int unix_prot,
+                            size_t align_mask, int mmap_flags )
 {
     struct wine_rb_entry *first = find_view_inside_range( &base, &end, top_down );
     ptrdiff_t step = top_down ? -(align_mask + 1) : (align_mask + 1);
@@ -1587,7 +1623,7 @@ static void *map_free_area( void *base, void *end, size_t size, int top_down, in
         {
             struct file_view *view = WINE_RB_ENTRY_VALUE( first, struct file_view, entry );
             if ((start = try_map_free_area( (char *)view->base + view->size, (char *)start + size, step,
-                                            start, size, unix_prot ))) break;
+                                            start, size, unix_prot, mmap_flags ))) break;
             start = ROUND_ADDR( (char *)view->base - size, align_mask );
             /* stop if remaining space is not large enough */
             if (!start || start >= end || start < base) return NULL;
@@ -1603,7 +1639,7 @@ static void *map_free_area( void *base, void *end, size_t size, int top_down, in
         {
             struct file_view *view = WINE_RB_ENTRY_VALUE( first, struct file_view, entry );
             if ((start = try_map_free_area( start, view->base, step,
-                                            start, size, unix_prot ))) break;
+                                            start, size, unix_prot, mmap_flags ))) break;
             start = ROUND_ADDR( (char *)view->base + view->size + align_mask, align_mask );
             /* stop if remaining space is not large enough */
             if (!start || start >= end || (char *)end - (char *)start < size) return NULL;
@@ -1612,7 +1648,7 @@ static void *map_free_area( void *base, void *end, size_t size, int top_down, in
     }
 
     if (!first)
-        start = try_map_free_area( base, end, step, start, size, unix_prot );
+        start = try_map_free_area( base, end, step, start, size, unix_prot, mmap_flags );
 
     if (!start)
         ERR( "couldn't map free area in range %p-%p, size %p\n", base, end, (void *)size );
@@ -2141,7 +2177,7 @@ static void *find_reserved_free_area_outside_preloader( void *start, void *end, 
  * virtual_mutex must be held by caller.
  */
 static void *map_reserved_area( void *limit_low, void *limit_high, size_t size, int top_down,
-                                int unix_prot, size_t align_mask )
+                                int unix_prot, size_t align_mask, int mmap_flags )
 {
     void *ptr = NULL;
     struct reserved_area *area;
@@ -2176,7 +2212,7 @@ static void *map_reserved_area( void *limit_low, void *limit_high, size_t size, 
             if (ptr) break;
         }
     }
-    if (ptr && anon_mmap_fixed( ptr, size, unix_prot, 0 ) != ptr) ptr = NULL;
+    if (ptr && anon_mmap_fixed( ptr, size, unix_prot, mmap_flags ) != ptr) ptr = NULL;
     return ptr;
 }
 
@@ -2186,7 +2222,7 @@ static void *map_reserved_area( void *limit_low, void *limit_high, size_t size, 
  * Map a memory area at a fixed address.
  * virtual_mutex must be held by caller.
  */
-static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot )
+static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot, int mmap_flags )
 {
     struct reserved_area *area;
     NTSTATUS status;
@@ -2204,19 +2240,19 @@ static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot )
         if (area_end <= start) continue;
         if (area_start > start)
         {
-            if (anon_mmap_tryfixed( start, area_start - start, unix_prot, 0 ) == MAP_FAILED) goto failed;
+            if (anon_mmap_tryfixed( start, area_start - start, unix_prot, mmap_flags ) == MAP_FAILED) goto failed;
             start = area_start;
         }
         if (area_end >= end)
         {
-            if (anon_mmap_fixed( start, end - start, unix_prot, 0 ) == MAP_FAILED) goto failed;
+            if (anon_mmap_fixed( start, end - start, unix_prot, mmap_flags ) == MAP_FAILED) goto failed;
             return STATUS_SUCCESS;
         }
-        if (anon_mmap_fixed( start, area_end - start, unix_prot, 0 ) == MAP_FAILED) goto failed;
+        if (anon_mmap_fixed( start, area_end - start, unix_prot, mmap_flags ) == MAP_FAILED) goto failed;
         start = area_end;
     }
 
-    if (anon_mmap_tryfixed( start, end - start, unix_prot, 0 ) == MAP_FAILED) goto failed;
+    if (anon_mmap_tryfixed( start, end - start, unix_prot, mmap_flags ) == MAP_FAILED) goto failed;
     return STATUS_SUCCESS;
 
 failed:
@@ -2249,6 +2285,7 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
     int top_down = alloc_type & MEM_TOP_DOWN;
     void *ptr;
     int unix_prot = get_unix_prot( vprot );
+    int mmap_flags = 0, anon_mmap_flags = get_mmap_flags( vprot );
     NTSTATUS status;
 
     if (!align_mask) align_mask = granularity_mask;
@@ -2288,7 +2325,7 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
         if (limit_low && base < (void *)limit_low) return STATUS_CONFLICTING_ADDRESSES;
         if (limit_high && is_beyond_limit( base, size, (void *)limit_high )) return STATUS_CONFLICTING_ADDRESSES;
         if (is_beyond_limit( base, size, host_addr_space_limit )) return STATUS_CONFLICTING_ADDRESSES;
-        if ((status = map_fixed_area( base, size, unix_prot ))) return status;
+        if ((status = map_fixed_area( base, size, unix_prot, mmap_flags ))) return status;
         if (is_beyond_limit( base, size, working_set_limit )) working_set_limit = address_space_limit;
         ptr = base;
     }
@@ -2302,23 +2339,26 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
         if (limit_low && (void *)limit_low > start) start = (void *)limit_low;
         if (limit_high && (void *)limit_high < end) end = (char *)limit_high + 1;
 
-        if ((ptr = map_reserved_area( start, end, host_size, top_down, unix_prot, align_mask )))
+        if (!anon_mmap_flags || start > address_space_start || end < host_addr_space_limit || top_down)
         {
-            TRACE( "got mem in reserved area %p-%p\n", ptr, (char *)ptr + size );
-            goto done;
-        }
+            if ((ptr = map_reserved_area( start, end, host_size, top_down, unix_prot, align_mask, mmap_flags )))
+            {
+                TRACE( "got mem in reserved area %p-%p\n", ptr, (char *)ptr + size );
+                goto done;
+            }
 
-        if (start > address_space_start || end < host_addr_space_limit || top_down)
-        {
-            if (!(ptr = map_free_area( start, end, host_size, top_down, unix_prot, align_mask )))
-                return STATUS_NO_MEMORY;
-            TRACE( "got mem with map_free_area %p-%p\n", ptr, (char *)ptr + size );
-            goto done;
+            if (start > address_space_start || end < host_addr_space_limit || top_down)
+            {
+                if (!(ptr = map_free_area( start, end, host_size, top_down, unix_prot, align_mask, mmap_flags )))
+                    return STATUS_NO_MEMORY;
+                TRACE( "got mem with map_free_area %p-%p\n", ptr, (char *)ptr + size );
+                goto done;
+            }
         }
 
         for (;;)
         {
-            if ((ptr = anon_mmap_alloc( view_size, unix_prot )) == MAP_FAILED)
+            if ((ptr = anon_mmap_alloc_flags( view_size, unix_prot, anon_mmap_flags )) == MAP_FAILED)
             {
                 status = (errno == ENOMEM) ? STATUS_NO_MEMORY : STATUS_INVALID_PARAMETER;
                 ERR( "anon mmap error %s, size %p, unix_prot %#x\n",
@@ -4071,8 +4111,13 @@ TEB *virtual_alloc_first_teb(void)
         exit(1);
     }
 
-    NtAllocateVirtualMemory( NtCurrentProcess(), &teb_block, is_win64 ? limit_2g - 1 : 0, &total,
-                             MEM_RESERVE | MEM_TOP_DOWN, PAGE_READWRITE );
+    NtAllocateVirtualMemory( NtCurrentProcess(), &teb_block,
+#if defined(__APPLE__) && defined(__aarch64__)
+                             0,
+#else
+                             is_win64 ? limit_2g - 1 : 0,
+#endif
+                             &total, MEM_RESERVE | MEM_TOP_DOWN, PAGE_READWRITE );
     teb_block_pos = 30;
     ptr = (char *)teb_block + 30 * block_size;
     data_size = 2 * block_size;
@@ -4637,7 +4682,12 @@ NTSTATUS virtual_handle_fault( struct thread_data *data, EXCEPTION_RECORD *rec, 
     }
     else if (err == EXCEPTION_WRITE_FAULT)
     {
-        if (vprot & VPROT_WRITEWATCH)
+        if (is_jit_write_protected_vprot( vprot ))
+        {
+            set_jit_write_protect( FALSE );
+            ret = STATUS_SUCCESS;
+        }
+        else if (vprot & VPROT_WRITEWATCH)
         {
             if (enable_write_exceptions && is_vprot_exec_write( vprot ) && !data->allow_writes)
             {
@@ -4657,6 +4707,11 @@ NTSTATUS virtual_handle_fault( struct thread_data *data, EXCEPTION_RECORD *rec, 
             if ((vprot & VPROT_WRITEWATCH) || is_write_watch_range( page, 1 ))
                 ret = STATUS_SUCCESS;
         }
+    }
+    else if (err == EXCEPTION_EXECUTE_FAULT && is_jit_write_protected_vprot( vprot ))
+    {
+        set_jit_write_protect( TRUE );
+        ret = STATUS_SUCCESS;
     }
     mutex_unlock( &virtual_mutex );
     rec->ExceptionCode = ret;

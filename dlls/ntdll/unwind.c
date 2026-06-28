@@ -809,6 +809,7 @@ NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
         context->Pc = context->Lr;
         *frame_ret = context->Sp;
         if (handler_ret) *handler_ret = NULL;
+        if (!handler_data) return STATUS_ACCESS_VIOLATION;
         *handler_data = NULL;
         return STATUS_SUCCESS;
     }
@@ -824,6 +825,7 @@ NTSTATUS WINAPI RtlVirtualUnwind2( ULONG type, ULONG_PTR base, ULONG_PTR pc,
         *frame_ret = context->Sp;
 
         if (handler_ret) *handler_ret = handler;
+        if (!handler_data) return STATUS_ACCESS_VIOLATION;
         *handler_data = data;
     }
     __EXCEPT_PAGE_FAULT

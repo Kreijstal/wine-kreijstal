@@ -358,6 +358,8 @@ static int keyed_event_signaled( struct object *obj, struct wait_queue_entry *en
 
     assert( obj->ops == &keyed_event_ops );
 
+    if (!entry) return 0;
+
     process = get_wait_queue_thread( entry )->process;
     select_op = get_wait_queue_select_op( entry );
     if (select_op != SELECT_KEYED_EVENT_WAIT && select_op != SELECT_KEYED_EVENT_RELEASE) return 1;

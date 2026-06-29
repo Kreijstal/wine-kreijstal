@@ -5380,6 +5380,7 @@ static void get_text_metr_size( HDC hdc, LOGFONTW *lf, TEXTMETRICW *metric, UINT
     TEXTMETRICW tm;
     UINT ret;
     if (!metric) metric = &tm;
+    memset( metric, 0, sizeof(*metric) );
     hfont = NtGdiHfontCreate( lf, sizeof(*lf), 0, 0, NULL );
     if (!hfont || !(hfontsav = NtGdiSelectFont( hdc, hfont )))
     {
@@ -5389,6 +5390,7 @@ static void get_text_metr_size( HDC hdc, LOGFONTW *lf, TEXTMETRICW *metric, UINT
         return;
     }
     ret = get_char_dimensions( hdc, metric, NULL );
+    if (!ret) metric->tmHeight = -1;
     if (psz) *psz = ret ? ret : 10;
     NtGdiSelectFont( hdc, hfontsav );
     NtGdiDeleteObjectApp( hfont );

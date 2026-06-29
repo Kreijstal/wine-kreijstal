@@ -81,6 +81,28 @@ ccache -s
 The build commands should show compiler invocations such as `ccache gcc`,
 `ccache x86_64-w64-mingw32-gcc`, and `ccache i686-w64-mingw32-gcc`.
 
+## MACOS ARM64 BUILD
+
+On Apple Silicon, this fork includes `build-wine-macos-arm64.sh` for a native
+ARM64 build tree. It enables FreeType explicitly; without FreeType, GDI text
+metrics and glyph rendering fall back to the null driver and Win32 GUI text will
+not render.
+
+Install the Homebrew build tools first:
+
+```
+brew install bison freetype llvm lld pkg-config
+```
+
+Then run:
+
+```
+./build-wine-macos-arm64.sh
+```
+
+The helper creates `build-arm64/`, configures `--enable-archs=aarch64`, and adds
+an rpath to `win32u.so` so build-tree runs can find Homebrew's FreeType library.
+
 ## QUICK START
 
 From the top-level directory of the Wine source (which contains this file),

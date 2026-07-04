@@ -784,9 +784,30 @@ BOOL WINAPI IsProcessDPIAware(void)
  */
 BOOL WINAPI EnableNonClientDpiScaling( HWND hwnd )
 {
-    FIXME("(%p): stub\n", hwnd);
-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    DPI_AWARENESS awareness;
+
+    TRACE( "(%p)\n", hwnd );
+
+    if (!IsWindow( hwnd ))
+    {
+        SetLastError( ERROR_INVALID_WINDOW_HANDLE );
+        return FALSE;
+    }
+
+    /* Non-client DPI scaling can only be enabled for Per-Monitor aware
+     * top-level windows; it is not applicable to System-DPI-aware or
+     * DPI-unaware windows (Windows fails those with ERROR_ACCESS_DENIED).
+     * For Per-Monitor windows Wine already lays out the non-client area at
+     * the window's own DPI (see get_window_dpi_awareness_context /
+     * NtUserGetDpiForWindow usage in win32u), so once the precondition holds
+     * the non-client area does scale with the window DPI as this call promises. */
+    awareness = GetAwarenessFromDpiAwarenessContext( GetWindowDpiAwarenessContext( hwnd ));
+    if (awareness != DPI_AWARENESS_PER_MONITOR_AWARE)
+    {
+        SetLastError( ERROR_ACCESS_DENIED );
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /***********************************************************************

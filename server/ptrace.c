@@ -385,7 +385,7 @@ static int write_process_memory_vm( struct thread *thread, client_ptr_t ptr, dat
     ssize_t len;
 
     if (not_supported) return -1;
-    if (thread->unix_pid == -1 || !is_process_init_done( thread->process ))
+    if (thread->unix_pid == -1)
     {
         set_error( STATUS_ACCESS_DENIED );
         return 0;

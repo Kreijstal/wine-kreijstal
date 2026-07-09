@@ -1600,7 +1600,7 @@ static void run_wineboot( WCHAR *env, SIZE_T size )
     handles[count++] = process;
 
 wait:
-    timeout.QuadPart = (ULONGLONG)5 * 60 * 1000 * -10000;
+    timeout.QuadPart = (ULONGLONG)30 * 60 * 1000 * -10000;
     if (NtWaitForMultipleObjects( count, handles, WaitAny, FALSE, &timeout ) == WAIT_TIMEOUT)
         ERR( "boot event wait timed out\n" );
     while (count) NtClose( handles[--count] );

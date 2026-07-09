@@ -494,10 +494,6 @@ LRESULT StaticWndProc_common( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
         if (hasTextStyle( full_style ))
         {
             if (unicode)
-                wine_dbg_printf("[STATIC WM_SETTEXT] hwnd=%p text=%s\\n", hwnd, debugstr_w((const WCHAR *)lParam));
-            else
-                wine_dbg_printf("[STATIC WM_SETTEXT] hwnd=%p text=%s\\n", hwnd, debugstr_a((const char *)lParam));
-            if (unicode)
                 lResult = DefWindowProcW( hwnd, uMsg, wParam, lParam );
             else
                 lResult = DefWindowProcA( hwnd, uMsg, wParam, lParam );

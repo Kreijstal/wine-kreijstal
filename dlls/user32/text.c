@@ -40,36 +40,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(text);
 
-static void log_draw_text_w( const char *func, const WCHAR *str, INT count, const RECT *rect, UINT flags )
-{
-    INT len, i;
-
-    if (!str) return;
-    if (count == -1) len = lstrlenW( str );
-    else if (count < 0) len = 0;
-    else len = count;
-    if (!len) return;
-
-    for (i = 0; i < len; ++i)
-    {
-        switch (str[i])
-        {
-        case 0:
-        case ' ':
-        case '\t':
-        case '\r':
-        case '\n':
-            break;
-        default:
-            wine_dbg_printf("[%s] flags=%08x rect=(%ld,%ld)-(%ld,%ld) text=%s\n", func, flags,
-                            rect ? rect->left : 0, rect ? rect->top : 0,
-                            rect ? rect->right : 0, rect ? rect->bottom : 0,
-                            debugstr_wn( str, len ));
-            return;
-        }
-    }
-}
-
 /*********************************************************************
  *
  *            DrawText functions
@@ -919,8 +889,6 @@ INT WINAPI DrawTextExW( HDC hdc, LPWSTR str, INT i_count,
           dtp->iTabLength, dtp->iLeftMargin, dtp->iRightMargin);
 
     if (!str) return 0;
-
-    if (!(flags & DT_CALCRECT)) log_draw_text_w( "DrawTextExW", str, count, rect, flags );
 
     strPtr = str;
 

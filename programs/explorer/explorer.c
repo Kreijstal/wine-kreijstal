@@ -342,7 +342,12 @@ static IShellFolder *get_starting_shell_folder(WCHAR *path)
     LPITEMIDLIST root_pidl;
     HRESULT hres;
 
-    SHGetDesktopFolder(&desktop);
+    hres = SHGetDesktopFolder(&desktop);
+    if (FAILED(hres))
+    {
+        ERR("Failed to get desktop folder, hr %#lx.\n", hres);
+        return NULL;
+    }
 
     if (!path)
         return desktop;
@@ -534,6 +539,12 @@ static void make_explorer_window(parameters_struct *params)
     IExplorerBrowser_Advise(info->browser,events,&info->advise_cookie);
 
     folder = get_starting_shell_folder(path);
+    if (!folder)
+    {
+        free(path);
+        IExplorerBrowserEvents_Release(events);
+        return;
+    }
     IExplorerBrowser_BrowseToObject(info->browser, (IUnknown *)folder, SBSP_ABSOLUTE);
     IShellFolder_Release(folder);
     free(path);

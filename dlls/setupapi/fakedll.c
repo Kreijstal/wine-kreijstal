@@ -209,7 +209,8 @@ static int read_file( const WCHAR *name, void **data, SIZE_T *size )
     struct stat st;
     int fd, ret = -1;
     size_t header_size;
-    IMAGE_DOS_HEADER *dos;
+    BYTE header[4096];
+    IMAGE_DOS_HEADER *dos = (IMAGE_DOS_HEADER *)header;
     IMAGE_NT_HEADERS *nt;
     const size_t min_size = sizeof(*dos) + 32 +
         FIELD_OFFSET( IMAGE_NT_HEADERS, OptionalHeader.MajorLinkerVersion );
@@ -217,39 +218,45 @@ static int read_file( const WCHAR *name, void **data, SIZE_T *size )
     if ((fd = _wopen( name, O_RDONLY | O_BINARY )) == -1) return 0;
     if (fstat( fd, &st ) == -1) goto done;
     *size = st.st_size;
-    if (!file_buffer || st.st_size > file_buffer_size)
-    {
-        VirtualFree( file_buffer, 0, MEM_RELEASE );
-        file_buffer = NULL;
-        file_buffer_size = st.st_size;
-        if (NtAllocateVirtualMemory( GetCurrentProcess(), &file_buffer, 0, &file_buffer_size,
-                                     MEM_COMMIT, PAGE_READWRITE )) goto done;
-    }
 
     /* check for valid fake dll file */
 
     if (st.st_size < min_size) goto done;
-    header_size = min( st.st_size, 4096 );
-    if (read( fd, file_buffer, header_size ) != header_size) goto done;
-    dos = file_buffer;
+    header_size = min( st.st_size, sizeof(header) );
+    if (read( fd, header, header_size ) != header_size) goto done;
     if (dos->e_magic != IMAGE_DOS_SIGNATURE) goto done;
     if (dos->e_lfanew < sizeof(*dos) + 32) goto done;
     if (memcmp( dos + 1, builtin_signature, strlen(builtin_signature) + 1 ) &&
         memcmp( dos + 1, fakedll_signature, strlen(fakedll_signature) + 1 )) goto done;
     if (dos->e_lfanew + FIELD_OFFSET(IMAGE_NT_HEADERS,OptionalHeader.MajorLinkerVersion) > header_size)
         goto done;
-    nt = (IMAGE_NT_HEADERS *)((char *)file_buffer + dos->e_lfanew);
+    nt = (IMAGE_NT_HEADERS *)(header + dos->e_lfanew);
     if (nt->Signature == IMAGE_NT_SIGNATURE && nt->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR_MAGIC)
     {
         /* wrong 32/64 type, pretend it doesn't exist */
         ret = 0;
         goto done;
     }
+
+    if (!file_buffer || st.st_size > file_buffer_size)
+    {
+        SIZE_T alloc_size = st.st_size;
+
+        VirtualFree( file_buffer, 0, MEM_RELEASE );
+        file_buffer = NULL;
+        file_buffer_size = st.st_size;
+        if (NtAllocateVirtualMemory( GetCurrentProcess(), &file_buffer, 0, &alloc_size,
+                                     MEM_COMMIT, PAGE_READWRITE )) goto done;
+        file_buffer_size = alloc_size;
+    }
+
+    memcpy( file_buffer, header, header_size );
     if (st.st_size == header_size ||
         read( fd, (char *)file_buffer + header_size,
               st.st_size - header_size ) == st.st_size - header_size)
     {
         *data = file_buffer;
+        nt = (IMAGE_NT_HEADERS *)((char *)file_buffer + dos->e_lfanew);
         if (lstrlenW(name) > 2 && !wcscmp( name + lstrlenW(name) - 2, L"16" ))
             extract_16bit_image( nt, data, size );
         ret = 1;
@@ -1029,6 +1036,7 @@ static void install_lib_dir( WCHAR *dest, WCHAR *file, const WCHAR *wildcard,
         if (lstrlenW( data.name ) > max_dll_name_len) continue;
         if (!wcscmp( data.name, L"." )) continue;
         if (!wcscmp( data.name, L".." )) continue;
+        if (default_ext && !wcscmp( default_ext, L".exe" ) && !wcscmp( data.name, L"winetest" )) continue;
         lstrcpyW( name, data.name );
         if (default_ext)  /* inside build dir */
         {

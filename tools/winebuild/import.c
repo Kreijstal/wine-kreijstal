@@ -1178,16 +1178,48 @@ static void new_output_as_file(void)
 /* assemble all the asm files */
 static void assemble_files( const char *prefix )
 {
-    unsigned int i;
+    unsigned int i, first = 0;
 
     if (output_file) fclose( output_file );
     output_file = NULL;
 
-    for (i = 0; i < as_files.count; i++)
+    if (!cc_command.count)  /* a bare assembler merges multiple inputs into one output */
     {
-        char *obj = make_temp_file( prefix, ".o" );
-        assemble_file( as_files.str[i], obj );
-        as_files.str[i] = obj;
+        for (i = 0; i < as_files.count; i++)
+        {
+            char *obj = make_temp_file( prefix, ".o" );
+            assemble_file( as_files.str[i], obj );
+            as_files.str[i] = obj;
+        }
+        return;
+    }
+
+    /* with a compiler driver, batch many files per invocation to limit
+     * process spawns, which are expensive on Windows hosts; the driver
+     * drops each input's object as basename.o in the current directory */
+    while (first < as_files.count)
+    {
+        struct strarray args = get_as_command();
+        size_t len = 0;
+        unsigned int count;
+
+        for (i = 0; i < args.count; i++) len += strlen( args.str[i] ) + 1;
+        for (count = 0; first + count < as_files.count; count++)
+        {
+            len += strlen( as_files.str[first + count] ) + 1;
+            if (len > 20000 && count) break;
+            strarray_add( &args, as_files.str[first + count] );
+        }
+        spawn( args );
+        for (i = 0; i < count; i++)
+        {
+            char *obj = make_temp_file( prefix, ".o" );
+            char *out = strmake( "%s.o", get_basename_noext( as_files.str[first + i] ));
+            if (rename( out, obj ) == -1) fatal_perror( "rename %s", out );
+            free( out );
+            as_files.str[first + i] = obj;
+        }
+        first += count;
     }
 }
 

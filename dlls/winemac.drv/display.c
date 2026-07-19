@@ -46,11 +46,21 @@ struct display_mode_descriptor
     CFStringRef pixel_encoding;
 };
 
+static const SIZE common_modes[] =
+{
+    {640, 480},
+    {800, 600},
+    {1024, 768},
+};
+
 static const WCHAR initial_mode_keyW[] = {'I','n','i','t','i','a','l',' ','D','i','s','p','l','a','y',
     ' ','M','o','d','e'};
 static const WCHAR pixelencodingW[] = {'P','i','x','e','l','E','n','c','o','d','i','n','g',0};
 
 static BOOL inited_original_display_mode;
+static CGDisplayModeRef current_display_mode;
+static DEVMODEW current_virtual_mode;
+static BOOL current_virtual_mode_valid;
 
 
 static int display_mode_bits_per_pixel(CGDisplayModeRef display_mode)
@@ -719,11 +729,14 @@ static CGDisplayModeRef find_best_display_mode(DEVMODEW *devmode, CFArrayRef dis
             continue;
         if (devmode->dmPelsHeight != height)
             continue;
-        if (devmode->dmDisplayFrequency != (DWORD)refresh_rate)
+        if ((devmode->dmFields & DM_DISPLAYFREQUENCY) &&
+            devmode->dmDisplayFrequency && devmode->dmDisplayFrequency != (DWORD)refresh_rate)
             continue;
-        if (!(devmode->dmDisplayFlags & DM_INTERLACED) != !(io_flags & kDisplayModeInterlacedFlag))
+        if ((devmode->dmFields & DM_DISPLAYFLAGS) &&
+            !(devmode->dmDisplayFlags & DM_INTERLACED) != !(io_flags & kDisplayModeInterlacedFlag))
             continue;
-        if (!(devmode->dmDisplayFixedOutput == DMDFO_STRETCH) != !(io_flags & kDisplayModeStretchedFlag))
+        if ((devmode->dmFields & DM_DISPLAYFIXEDOUTPUT) &&
+            !(devmode->dmDisplayFixedOutput == DMDFO_STRETCH) != !(io_flags & kDisplayModeStretchedFlag))
             continue;
 
         if (best_display_mode)
@@ -737,6 +750,55 @@ static CGDisplayModeRef find_best_display_mode(DEVMODEW *devmode, CFArrayRef dis
         TRACE("Requested display settings match mode %ld\n", best);
 
     return best_display_mode;
+}
+
+static void set_current_display_mode(CGDisplayModeRef mode)
+{
+    if (mode)
+        CGDisplayModeRetain(mode);
+    if (current_display_mode)
+        CGDisplayModeRelease(current_display_mode);
+    current_display_mode = mode;
+    current_virtual_mode_valid = FALSE;
+}
+
+static void set_current_virtual_mode(const DEVMODEW *mode, int bpp)
+{
+    memset(&current_virtual_mode, 0, sizeof(current_virtual_mode));
+    current_virtual_mode.dmSize = sizeof(current_virtual_mode);
+    current_virtual_mode.dmFields = DM_PELSWIDTH | DM_PELSHEIGHT | DM_BITSPERPEL |
+                                    DM_DISPLAYFREQUENCY | DM_DISPLAYFLAGS |
+                                    DM_DISPLAYFIXEDOUTPUT | DM_DISPLAYORIENTATION;
+    current_virtual_mode.dmPelsWidth = mode->dmPelsWidth;
+    current_virtual_mode.dmPelsHeight = mode->dmPelsHeight;
+    current_virtual_mode.dmBitsPerPel = (mode->dmFields & DM_BITSPERPEL) && mode->dmBitsPerPel ?
+                                        mode->dmBitsPerPel : bpp;
+    current_virtual_mode.dmDisplayFrequency = (mode->dmFields & DM_DISPLAYFREQUENCY) &&
+                                              mode->dmDisplayFrequency ? mode->dmDisplayFrequency : 60;
+    current_virtual_mode.dmDisplayFlags = mode->dmFields & DM_DISPLAYFLAGS ? mode->dmDisplayFlags : 0;
+    current_virtual_mode.dmDisplayFixedOutput = mode->dmFields & DM_DISPLAYFIXEDOUTPUT ?
+                                                mode->dmDisplayFixedOutput : DMDFO_CENTER;
+    current_virtual_mode.dmDisplayOrientation = mode->dmFields & DM_DISPLAYORIENTATION ?
+                                                mode->dmDisplayOrientation : DMDO_DEFAULT;
+
+    if (current_display_mode)
+        CGDisplayModeRelease(current_display_mode);
+    current_display_mode = NULL;
+    current_virtual_mode_valid = TRUE;
+}
+
+static BOOL can_use_virtual_mode(const DEVMODEW *mode)
+{
+    if (!(mode->dmFields & DM_PELSWIDTH) || !(mode->dmFields & DM_PELSHEIGHT))
+        return FALSE;
+    if (!mode->dmPelsWidth || !mode->dmPelsHeight)
+        return FALSE;
+    if ((mode->dmFields & DM_BITSPERPEL) && !mode->dmBitsPerPel)
+        return FALSE;
+    if ((mode->dmFields & DM_DISPLAYFREQUENCY) && mode->dmDisplayFrequency &&
+        mode->dmDisplayFrequency < 10)
+        return FALSE;
+    return TRUE;
 }
 
 /***********************************************************************
@@ -789,15 +851,26 @@ LONG macdrv_ChangeDisplaySettings(LPDEVMODEW displays, LPCWSTR primary_name, HWN
 
         if (!(best_display_mode = find_best_display_mode(mode, display_modes, bpp, desc)))
         {
-            ERR("No matching mode found %ux%ux%d @%u!\n", mode->dmPelsWidth, mode->dmPelsHeight,
-                bpp, mode->dmDisplayFrequency);
-            ret = DISP_CHANGE_BADMODE;
+            if (can_use_virtual_mode(mode))
+            {
+                WARN("No matching CoreGraphics mode found for %ux%ux%d @%u, using virtual mode.\n",
+                     mode->dmPelsWidth, mode->dmPelsHeight, bpp, mode->dmDisplayFrequency);
+                set_current_virtual_mode(mode, bpp);
+            }
+            else
+            {
+                ERR("No matching mode found %ux%ux%d @%u!\n", mode->dmPelsWidth, mode->dmPelsHeight,
+                    bpp, mode->dmDisplayFrequency);
+                ret = DISP_CHANGE_BADMODE;
+            }
         }
         else if (!macdrv_set_display_mode(CGMainDisplayID(), best_display_mode))
         {
             WARN("Failed to set display mode\n");
             ret = DISP_CHANGE_FAILED;
         }
+        else
+            set_current_display_mode(best_display_mode);
     }
 
     free_display_mode_descriptor(desc);
@@ -831,7 +904,7 @@ static DEVMODEW *display_get_modes(CGDirectDisplayID display_id, int *modes_coun
             modes_has_16bpp = TRUE;
     }
 
-    if (!(devmodes = calloc(count * 3, sizeof(DEVMODEW))))
+    if (!(devmodes = calloc((count + ARRAY_SIZE(common_modes)) * 3, sizeof(DEVMODEW))))
     {
         CFRelease(modes);
         return NULL;
@@ -854,6 +927,32 @@ static DEVMODEW *display_get_modes(CGDirectDisplayID display_id, int *modes_coun
         }
     }
     free_display_mode_descriptor(desc);
+
+    for (i = 0; i < ARRAY_SIZE(common_modes); i++)
+    {
+        int j;
+
+        for (j = 0; j < count; j++)
+        {
+            if (devmodes[j].dmBitsPerPel == default_bpp &&
+                devmodes[j].dmPelsWidth == common_modes[i].cx &&
+                devmodes[j].dmPelsHeight == common_modes[i].cy)
+                break;
+        }
+        if (j < count)
+            continue;
+
+        devmodes[count].dmSize = sizeof(*devmodes);
+        devmodes[count].dmFields = DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT |
+                                   DM_DISPLAYFLAGS | DM_DISPLAYFREQUENCY |
+                                   DM_DISPLAYORIENTATION | DM_DISPLAYFIXEDOUTPUT;
+        devmodes[count].dmBitsPerPel = default_bpp;
+        devmodes[count].dmPelsWidth = common_modes[i].cx;
+        devmodes[count].dmPelsHeight = common_modes[i].cy;
+        devmodes[count].dmDisplayFrequency = 60;
+        devmodes[count].dmDisplayFixedOutput = DMDFO_CENTER;
+        count++;
+    }
 
     for (i = 0; !modes_has_16bpp && i < count; i++)
     {
@@ -884,7 +983,19 @@ static void display_get_current_mode(struct macdrv_monitor *monitor, DEVMODEW *d
     CGDirectDisplayID display_id;
 
     display_id = monitor->id;
-    display_mode = CGDisplayCopyDisplayMode(display_id);
+    if (display_id == CGMainDisplayID() && current_virtual_mode_valid)
+    {
+        *devmode = current_virtual_mode;
+        devmode->dmPosition.x = CGRectGetMinX(monitor->rc_monitor);
+        devmode->dmPosition.y = CGRectGetMinY(monitor->rc_monitor);
+        devmode->dmFields |= DM_POSITION;
+        return;
+    }
+
+    if (display_id == CGMainDisplayID() && current_display_mode)
+        display_mode = CGDisplayModeRetain(current_display_mode);
+    else
+        display_mode = CGDisplayCopyDisplayMode(display_id);
 
     devmode->dmPosition.x = CGRectGetMinX(monitor->rc_monitor);
     devmode->dmPosition.y = CGRectGetMinY(monitor->rc_monitor);

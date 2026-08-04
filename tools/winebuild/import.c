@@ -1240,13 +1240,39 @@ static const char *get_target_machine(void)
 /* build a library from the current asm files and any additional object files in argv */
 void output_static_lib( const char *output_name, struct strarray files, int create )
 {
+    struct strarray objs = empty_strarray;
     struct strarray args;
+
+    strarray_addall( &objs, as_files );
+    strarray_addall( &objs, files );
+    if (create) unlink( output_name );
 
     if (!create || !is_llvm_pe_target( target ))
     {
-        args = find_tool( "ar", NULL );
-        strarray_add( &args, create ? "rc" : "r" );
-        strarray_add( &args, output_name );
+        struct strarray ar = find_tool( "ar", NULL );
+        unsigned int first = 0;
+
+        /* the command line length is limited (32k on Windows), and a large dll
+         * can need far more than that, so add the members in several passes */
+        do
+        {
+            size_t len = 0;
+            unsigned int i, count;
+
+            args = empty_strarray;
+            strarray_addall( &args, ar );
+            strarray_add( &args, first || !create ? "r" : "rc" );
+            strarray_add( &args, output_name );
+            for (i = 0; i < args.count; i++) len += strlen( args.str[i] ) + 1;
+            for (count = 0; first + count < objs.count; count++)
+            {
+                len += strlen( objs.str[first + count] ) + 1;
+                if (len > 20000 && count) break;
+                strarray_add( &args, objs.str[first + count] );
+            }
+            spawn( args );
+            first += count;
+        } while (first < objs.count);
     }
     else
     {
@@ -1254,11 +1280,9 @@ void output_static_lib( const char *output_name, struct strarray files, int crea
         strarray_add( &args, "/lib" );
         strarray_add( &args, strmake( "-machine:%s", get_target_machine() ));
         strarray_add( &args, strmake( "-out:%s", output_name ));
+        strarray_addall( &args, objs );
+        spawn( args );
     }
-    strarray_addall( &args, as_files );
-    strarray_addall( &args, files );
-    if (create) unlink( output_name );
-    spawn( args );
 
     if (!is_llvm_pe_target( target ))
     {

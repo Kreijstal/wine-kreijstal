@@ -334,11 +334,15 @@ static inline int strarray_spawn( struct strarray args )
     return _spawnvp( _P_WAIT, args.str[0], args.str );
 #else
     pid_t pid, wret;
-    int status;
+    int status, err;
 
     strarray_add( &args, NULL );
-    if (posix_spawnp( &pid, args.str[0], NULL, NULL, (char **)args.str, environ ))
+    /* posix_spawnp() returns the error directly and leaves errno untouched */
+    if ((err = posix_spawnp( &pid, args.str[0], NULL, NULL, (char **)args.str, environ )))
+    {
+        errno = err;
         return -1;
+    }
 
     while (pid != (wret = waitpid( pid, &status, 0 )))
         if (wret == -1 && errno != EINTR) break;

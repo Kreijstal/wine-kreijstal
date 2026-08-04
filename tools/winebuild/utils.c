@@ -161,7 +161,7 @@ void spawn( struct strarray args )
     if ((status = strarray_spawn( args )))
     {
 	if (status > 0) fatal_error( "%s failed with status %u\n", args.str[0], status );
-	else fatal_perror( "winebuild" );
+	else fatal_perror( "cannot execute %s", args.str[0] );
 	exit( 1 );
     }
 }
@@ -197,7 +197,8 @@ static const char *find_clang_tool( struct strarray clang, const char *tool )
     cnt = read(sout, path, st.st_size);
     close(sout);
     path[cnt] = 0;
-    if ((p = strchr(path, '\n'))) *p = 0;
+    /* the output is read from a file, so on Windows it is CRLF-terminated */
+    if ((p = strpbrk(path, "\r\n"))) *p = 0;
     /* clang returns passed command instead of full path if the tool could not be found */
     if (!strcmp(path, tool))
     {

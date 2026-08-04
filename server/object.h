@@ -66,6 +66,19 @@ struct type_descr
     unsigned int       handle_max;    /* max count of handles of this type */
 };
 
+/* parameters for named object creation */
+struct object_params
+{
+    const struct object_ops          *ops;        /* object operations */
+    struct object                    *root;       /* root directory */
+    struct unicode_str                name;       /* new object name */
+    unsigned int                      attr;       /* creation attributes */
+    unsigned int                      access;     /* wanted access rights */
+    const struct security_descriptor *sd;         /* pointer to sd data in the request */
+    const struct object_attributes   *objattr;    /* pointer to object attributes in the request */
+    const void                       *init_data;  /* object-specific initialization data */
+};
+
 /* operations valid on all objects */
 struct object_ops
 {
@@ -75,6 +88,8 @@ struct object_ops
     struct type_descr *type;
     /* dump the object (for debugging) */
     void (*dump)(struct object *,int);
+    /* initialize a newly-created object */
+    bool (*init)(struct object *,const void *);
     /* add a thread to the object wait queue */
     int  (*add_queue)(struct object *,struct wait_queue_entry *);
     /* remove a thread from the object wait queue */
@@ -156,11 +171,9 @@ extern void dump_object_name( struct object *obj );
 extern struct object *lookup_named_object( struct object *root, struct unicode_str name,
                                            unsigned int attr, struct unicode_str *name_left );
 extern data_size_t get_path_element( const WCHAR *name, data_size_t len );
-extern void *create_named_object( struct object *parent, const struct object_ops *ops,
-                                  struct unicode_str name, unsigned int attributes,
-                                  const struct security_descriptor *sd );
-extern void *open_named_object( struct object *parent, const struct object_ops *ops,
-                                struct unicode_str name, unsigned int attributes );
+extern void *create_named_object( const struct object_params *params );
+obj_handle_t create_named_obj_handle( struct process *process, const struct object_params *params );
+extern void *open_named_object( const struct object_params *params );
 extern void unlink_named_object( struct object *obj );
 extern struct namespace *create_namespace( unsigned int hash_size );
 extern void free_kernel_objects( struct object *obj );

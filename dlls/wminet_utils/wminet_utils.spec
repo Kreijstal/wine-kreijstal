@@ -22,9 +22,9 @@
 @ stdcall GetCurrentApartmentType(long ptr ptr)
 @ stub GetDemultiplexedStub
 @ stub GetErrorInfo
-@ stub GetMethod
+@ stdcall GetMethod(long ptr wstr long ptr ptr)
 @ stub GetMethodOrigin
-@ stub GetMethodQualifierSet
+@ stdcall GetMethodQualifierSet(long ptr wstr ptr)
 @ stdcall GetNames(long ptr wstr long ptr ptr)
 @ stub GetObjectText
 @ stub GetPropertyHandle
@@ -44,7 +44,7 @@
 @ stub QualifierSet_BeginEnumeration
 @ stub QualifierSet_Delete
 @ stub QualifierSet_EndEnumeration
-@ stub QualifierSet_Get
+@ stdcall QualifierSet_Get(long ptr wstr long ptr ptr)
 @ stub QualifierSet_GetNames
 @ stub QualifierSet_Next
 @ stub QualifierSet_Put

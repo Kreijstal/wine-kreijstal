@@ -88,7 +88,13 @@ struct directory
     struct namespace *entries;    /* directory's name space */
 };
 
+struct directory_init_data
+{
+    unsigned int hash_size;
+};
+
 static void directory_dump( struct object *obj, int verbose );
+static bool directory_init( struct object *obj, const void *init_data );
 static struct object *directory_lookup_name( struct object *obj, struct unicode_str *name,
                                              unsigned int attr, struct object *root );
 static void directory_destroy( struct object *obj );
@@ -98,6 +104,7 @@ static const struct object_ops directory_ops =
     .size        = sizeof(struct directory),
     .type        = &directory_type,
     .dump        = directory_dump,
+    .init        = directory_init,
     .lookup_name = directory_lookup_name,
     .destroy     = directory_destroy,
 };
@@ -138,13 +145,14 @@ static void object_type_dump( struct object *obj, int verbose )
     fputs( "Object type\n", stderr );
 }
 
-static struct object_type *create_object_type( struct object *root, unsigned int index,
-                                               unsigned int attr, const struct security_descriptor *sd )
+static struct object_type *create_object_type( struct object *root, unsigned int index, unsigned int attr )
 {
     struct type_descr *descr = types[index];
     struct object_type *type;
+    struct object_params params = { .ops = &object_type_ops, .root = root,
+                                    .name = descr->name, .attr = attr };
 
-    if ((type = create_named_object( root, &object_type_ops, descr->name, attr, sd )))
+    if ((type = create_named_object( &params )))
     {
         descr->index = index;
     }
@@ -154,6 +162,14 @@ static struct object_type *create_object_type( struct object *root, unsigned int
 static void directory_dump( struct object *obj, int verbose )
 {
     fputs( "Directory\n", stderr );
+}
+
+static bool directory_init( struct object *obj, const void *init_data )
+{
+    struct directory *dir = (struct directory *)obj;
+    const struct directory_init_data *data = init_data;
+
+    return !!(dir->entries = create_namespace( data->hash_size ));
 }
 
 static struct object *directory_lookup_name( struct object *obj, struct unicode_str *name,
@@ -222,18 +238,11 @@ static struct directory *create_directory( struct object *root, struct unicode_s
                                            unsigned int attr, unsigned int hash_size,
                                            const struct security_descriptor *sd )
 {
-    struct directory *dir;
+    struct directory_init_data data = { .hash_size = hash_size };
+    struct object_params params = { .ops = &directory_ops, .root = root, .name = name,
+                                    .attr = attr, .sd = sd, .init_data = &data };
 
-    if ((dir = create_named_object( root, &directory_ops, name, attr, sd )) &&
-        get_error() != STATUS_OBJECT_NAME_EXISTS)
-    {
-        if (!(dir->entries = create_namespace( hash_size )))
-        {
-            release_object( dir );
-            return NULL;
-        }
-    }
-    return dir;
+    return create_named_object( &params );
 }
 
 struct object *get_root_directory(void)
@@ -445,7 +454,7 @@ void init_directories( struct fd *intl_fd )
     /* object types */
 
     for (i = 0; i < ARRAY_SIZE(types); i++)
-        release_object( create_object_type( &dir_objtype->obj, i, OBJ_PERMANENT, NULL ));
+        release_object( create_object_type( &dir_objtype->obj, i, OBJ_PERMANENT ));
 
     /* symlinks */
     release_object( create_obj_symlink( &root_directory->obj, link_dosdev_str, OBJ_PERMANENT, &dir_global->obj, NULL ));
@@ -498,25 +507,12 @@ void init_directories( struct fd *intl_fd )
 /* create a directory object */
 DECL_HANDLER(create_directory)
 {
-    struct unicode_str name;
-    struct object *root;
-    struct directory *dir;
-    const struct security_descriptor *sd;
-    const struct object_attributes *objattr = get_req_object_attributes( &sd, &name, &root );
+    struct directory_init_data data = { .hash_size = HASH_SIZE };
+    struct object_params params = { .ops = &directory_ops, .access = req->access, .init_data = &data };
 
-    if (!objattr) return;
-
-    if ((dir = create_directory( root, name, objattr->attributes, HASH_SIZE, sd )))
-    {
-        if (get_error() == STATUS_OBJECT_NAME_EXISTS)
-            reply->handle = alloc_handle( current->process, dir, req->access, objattr->attributes );
-        else
-            reply->handle = alloc_handle_no_access_check( current->process, dir,
-                                                          req->access, objattr->attributes );
-        release_object( dir );
-    }
-
-    if (root) release_object( root );
+    if (!get_req_object_attributes( &params )) return;
+    reply->handle = create_named_obj_handle( current->process, &params );
+    if (params.root) release_object( params.root );
 }
 
 /* open a directory object */

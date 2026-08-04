@@ -150,3 +150,25 @@ HRESULT WINAPI EndMethodEnumeration(int vFunc, IWbemClassObject *ptr)
 
     return IWbemClassObject_EndMethodEnumeration(ptr);
 }
+
+HRESULT WINAPI GetMethod(int vFunc, IWbemClassObject *ptr, LPCWSTR wszName, LONG lFlags,
+    IWbemClassObject **ppInSignature, IWbemClassObject **ppOutSignature)
+{
+	TRACE("%i %p %s %lx %p %p\n", vFunc, ptr, debugstr_w(wszName), lFlags, ppInSignature, ppOutSignature);
+
+	return IWbemClassObject_GetMethod(ptr, wszName, lFlags, ppInSignature, ppOutSignature);
+}
+
+HRESULT WINAPI GetMethodQualifierSet(int vFunc, IWbemClassObject *ptr, LPCWSTR wszMethod, IWbemQualifierSet **ppQualSet)
+{
+    TRACE("%i %p %s %p\n", vFunc, ptr, debugstr_w(wszMethod), ppQualSet);
+
+    return IWbemClassObject_GetMethodQualifierSet(ptr, wszMethod, ppQualSet);
+}
+
+HRESULT WINAPI QualifierSet_Get(int vFunc, IWbemQualifierSet* ptr, LPCWSTR wszName, LONG lFlags, VARIANT *pVal, LONG *plFlavor)
+{
+    TRACE("%i %p %s %lx %p %p\n", vFunc, ptr, debugstr_w(wszName), lFlags, pVal, plFlavor);
+
+    return IWbemQualifierSet_Get(ptr, wszName, lFlags, pVal, plFlavor);
+}

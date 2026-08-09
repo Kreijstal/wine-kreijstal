@@ -10,6 +10,7 @@ SOURCES = \
 	brush.c \
 	clipboard.c \
 	desktop.c \
+	dcomp.c \
 	display.c \
 	dllmain.c \
 	event.c \

@@ -113,6 +113,7 @@ HRESULT dxgi_set_private_data_interface(struct wined3d_private_store *store,
 struct dxgi_factory
 {
     IWineDXGIFactory IWineDXGIFactory_iface;
+    IDXGIFactoryMedia IDXGIFactoryMedia_iface;
     LONG refcount;
     struct wined3d_private_store private_store;
     struct wined3d *wined3d;
@@ -193,6 +194,9 @@ HRESULT d3d11_swapchain_init(struct d3d11_swapchain *swapchain, struct dxgi_devi
 HRESULT d3d12_swapchain_create(IWineDXGIFactory *factory, ID3D12CommandQueue *queue, HWND window,
         const DXGI_SWAP_CHAIN_DESC1 *swapchain_desc, const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *fullscreen_desc,
         IDXGISwapChain1 **swapchain);
+HRESULT composition_swapchain_create(IWineDXGIFactory *factory, IUnknown *device, HANDLE surface,
+        const DXGI_SWAP_CHAIN_DESC1 *desc, IDXGIOutput *restrict_to_output,
+        IDXGISwapChain1 **swapchain);
 
 BOOL dxgi_validate_swapchain_desc(const DXGI_SWAP_CHAIN_DESC1 *desc);
 BOOL dxgi_validate_swapchain_fullscreen_desc(const DXGI_SWAP_CHAIN_FULLSCREEN_DESC *desc);
@@ -216,5 +220,8 @@ struct dxgi_resource
 HRESULT dxgi_resource_init(struct dxgi_resource *resource, IDXGIDevice *device,
         IUnknown *outer, BOOL needs_surface, struct wined3d_resource *wined3d_resource,
         IDXGIResource1 *parent_resource, unsigned int subresource_index);
+HRESULT dxgi_surface_create_shared_handle(IDXGISurface *surface, HANDLE *handle,
+        UINT *memory_type_index);
+HRESULT dxgi_surface_publish_shared(IDXGISurface *surface, HANDLE *sync_handle);
 
 #endif /* __WINE_DXGI_PRIVATE_H */

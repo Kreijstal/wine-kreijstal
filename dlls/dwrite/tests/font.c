@@ -9866,6 +9866,15 @@ static void test_fontsetbuilder(void)
         count = IDWriteFontSet_GetFontCount(fontset);
         ok(count == 2, "Unexpected font count %u.\n", count);
 
+        hr = IDWriteFontSetBuilder1_AddFontSet(builder1, fontset);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        IDWriteFontSet_Release(fontset);
+
+        hr = IDWriteFontSetBuilder1_CreateFontSet(builder1, &fontset);
+        ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+        count = IDWriteFontSet_GetFontCount(fontset);
+        ok(count == 4, "Unexpected font count %u.\n", count);
+
         hr = IDWriteFontSet_GetFontFaceReference(fontset, 0, &ref);
         ok(hr == S_OK, "Unexpected hr %#lx.\n",hr);
 

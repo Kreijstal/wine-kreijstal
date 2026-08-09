@@ -7655,6 +7655,9 @@ ULONG_PTR WINAPI NtUserCallTwoParam( ULONG_PTR arg1, ULONG_PTR arg2, ULONG code 
         *(RECT *)arg1 = get_virtual_screen_rect( no_dpi, arg2 );
         return 1;
 
+    case NtUserCallTwoParam_DCompositionUpdate:
+        return __wine_dcomp_update( (const struct wine_dcomp_scene *)arg1, arg2 );
+
     /* temporary exports */
     case NtUserAllocWinProc:
         return (UINT_PTR)alloc_winproc( (WNDPROC)arg1, arg2 );

@@ -1178,11 +1178,46 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
     VkSemaphore semaphore = VK_NULL_HANDLE;
     const uint64_t signal_value = 1;
     const struct wined3d_vk_info *vk_info;
+    unsigned int i, sub_resource_count;
     VkResult vr;
 
     *sync_handle = NULL;
     context_vk = wined3d_context_vk(context_acquire(texture->resource.device, NULL, 0));
     vk_info = context_vk->vk_info;
+    if (!vk_info->supported[WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32]
+            || !vk_info->timeline_semaphore
+            || !VK_CALL(vkGetSemaphoreWin32HandleKHR))
+    {
+        context_release(&context_vk->c);
+        return E_NOTIMPL;
+    }
+    if (!wined3d_texture_vk_prepare_texture(texture_vk, context_vk))
+    {
+        context_release(&context_vk->c);
+        return E_FAIL;
+    }
+
+    /* Clears and uploads may be represented by a deferred wined3d location.
+     * The exported allocation is texture_vk->image, so make that exact image
+     * authoritative before releasing it to an external queue family. */
+    sub_resource_count = texture->layer_count * texture->level_count;
+    for (i = 0; i < sub_resource_count; ++i)
+    {
+        if (!wined3d_texture_load_location(texture, i, &context_vk->c,
+                WINED3D_LOCATION_TEXTURE_RGB))
+        {
+            WARN("Failed to materialize sub-resource %u of shared texture %p.\n",
+                    i, texture);
+            context_release(&context_vk->c);
+            return E_FAIL;
+        }
+    }
+    if (!(command_buffer = wined3d_context_vk_get_command_buffer(context_vk)))
+    {
+        context_release(&context_vk->c);
+        return E_FAIL;
+    }
+
     TRACE("Publishing shared texture %p image 0x%s, format %s/VkFormat %u, bind flags %#x, "
             "swapchain %p, typeless %u, memory type %u.\n", texture,
             wine_dbgstr_longlong(texture_vk->image.vk_image),
@@ -1191,19 +1226,6 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
             texture->resource.bind_flags, texture->swapchain,
             wined3d_format_is_typeless(texture->resource.format),
             texture_vk->image.memory_type_index);
-    if (!vk_info->supported[WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32]
-            || !vk_info->timeline_semaphore
-            || !VK_CALL(vkGetSemaphoreWin32HandleKHR))
-    {
-        context_release(&context_vk->c);
-        return E_NOTIMPL;
-    }
-    if (!wined3d_texture_vk_prepare_texture(texture_vk, context_vk)
-            || !(command_buffer = wined3d_context_vk_get_command_buffer(context_vk)))
-    {
-        context_release(&context_vk->c);
-        return E_FAIL;
-    }
     if ((vr = VK_CALL(vkCreateSemaphore(device_vk->vk_device, &semaphore_info,
             NULL, &semaphore))) != VK_SUCCESS)
     {

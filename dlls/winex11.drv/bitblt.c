@@ -51,6 +51,7 @@
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(bitblt);
+WINE_DECLARE_DEBUG_CHANNEL(dcomp);
 
 
 #define DST 0   /* Destination drawable */
@@ -1587,7 +1588,10 @@ struct x11drv_window_surface
     struct window_surface header;
     Window                window;
     GC                    gc;
+    GC                    composed_gc;
     struct x11drv_image  *image;
+    struct x11drv_image  *composed_image;
+    XVisualInfo           visual;
     BOOL                  byteswap;
 };
 
@@ -1748,6 +1752,52 @@ failed:
     return NULL;
 }
 
+static BOOL dcomp_image_compatible( const struct x11drv_window_surface *surface )
+{
+    const XImage *image = surface->image->ximage;
+
+    return !surface->byteswap && image->bits_per_pixel == 32 && image->byte_order == LSBFirst
+            && image->red_mask == 0x00ff0000 && image->green_mask == 0x0000ff00
+            && image->blue_mask == 0x000000ff;
+}
+
+static struct x11drv_image *create_composed_image( const struct x11drv_window_surface *surface )
+{
+    BITMAPINFO info = {{0}};
+    const XImage *image = surface->image->ximage;
+
+    info.bmiHeader.biSize = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth = image->width;
+    info.bmiHeader.biHeight = -image->height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = image->bits_per_pixel;
+    info.bmiHeader.biSizeImage = image->bytes_per_line * image->height;
+    return x11drv_image_create( &info, &surface->visual );
+}
+
+static BOOL create_composed_output( struct x11drv_window_surface *surface )
+{
+    if (!(surface->composed_image = create_composed_image( surface ))) return FALSE;
+    if (!(surface->composed_gc = XCreateGC( gdi_display, surface->window, 0, NULL )))
+    {
+        x11drv_image_destroy( surface->composed_image );
+        surface->composed_image = NULL;
+        return FALSE;
+    }
+    /* Keep the X default ClipByChildren.  The composition buffer must bypass
+     * the Win32 application-paint clip so it reaches a logical layered child,
+     * but it must not overwrite a real native X child plane. */
+    return TRUE;
+}
+
+static void destroy_composed_output( struct x11drv_window_surface *surface )
+{
+    if (surface->composed_gc) XFreeGC( gdi_display, surface->composed_gc );
+    if (surface->composed_image) x11drv_image_destroy( surface->composed_image );
+    surface->composed_gc = 0;
+    surface->composed_image = NULL;
+}
+
 static XRectangle *xrectangles_from_rects( const RECT *rects, UINT count )
 {
     XRectangle *xrects;
@@ -1794,9 +1844,11 @@ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const R
 {
     UINT alpha_mask = window_surface->alpha_mask, alpha_bits = window_surface->alpha_bits;
     struct x11drv_window_surface *surface = get_x11_surface( window_surface );
-    XImage *ximage = surface->image->ximage;
+    XImage *ximage = surface->image->ximage, *output = ximage;
     const unsigned char *src = color_bits;
     unsigned char *dst = (unsigned char *)ximage->data;
+    POINT dcomp_trace_sample = {-1, -1};
+    BOOL used_shm;
 
     if (alpha_bits == -1)
     {
@@ -1848,12 +1900,65 @@ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const R
 #endif /* HAVE_LIBXSHAPE */
     }
 
-    if (!put_shm_image( ximage, &surface->image->shminfo, surface->window, surface->gc, rect, dirty ))
-        XPutImage( gdi_display, surface->window, surface->gc, ximage, dirty->left,
+    /* Always rebuild composition from the retained application image.  Compositing
+     * into that image would accumulate translucent content on every Expose replay. */
+    if (dcomp_image_compatible( surface ) && x11drv_dcomp_has_targets( window_surface->hwnd ))
+    {
+        if (!surface->composed_image) create_composed_output( surface );
+        if (surface->composed_image)
+        {
+            XImage *composed = surface->composed_image->ximage;
+            if (ximage->bytes_per_line == composed->bytes_per_line)
+            {
+                memcpy( composed->data, ximage->data, ximage->bytes_per_line * ximage->height );
+                if (x11drv_dcomp_compose( window_surface->hwnd, rect, (UINT32 *)composed->data,
+                        composed->width, composed->height, composed->bytes_per_line / sizeof(UINT32),
+                        &dcomp_trace_sample ))
+                    output = composed;
+            }
+        }
+    }
+    else if (surface->composed_image)
+        destroy_composed_output( surface );
+
+    used_shm = put_shm_image( output,
+            output == ximage ? &surface->image->shminfo : &surface->composed_image->shminfo,
+            surface->window, output == ximage ? surface->gc : surface->composed_gc, rect, dirty );
+    if (!used_shm)
+        XPutImage( gdi_display, surface->window, output == ximage ? surface->gc : surface->composed_gc,
+                   output, dirty->left,
                    dirty->top, rect->left + dirty->left, rect->top + dirty->top,
                    dirty->right - dirty->left, dirty->bottom - dirty->top );
 
     XFlush( gdi_display );
+
+    if (TRACE_ON(dcomp) && output != ximage && dcomp_trace_sample.x >= 0
+            && dcomp_trace_sample.y >= 0 && dcomp_trace_sample.x < output->width
+            && dcomp_trace_sample.y < output->height)
+    {
+        XGCValues values = {0};
+        XImage *published = NULL;
+        unsigned long composed_pixel = XGetPixel(output, dcomp_trace_sample.x, dcomp_trace_sample.y);
+        int dest_x = rect->left + dcomp_trace_sample.x;
+        int dest_y = rect->top + dcomp_trace_sample.y;
+        BOOL in_dirty = dcomp_trace_sample.x >= dirty->left && dcomp_trace_sample.x < dirty->right
+                && dcomp_trace_sample.y >= dirty->top && dcomp_trace_sample.y < dirty->bottom;
+
+        XSync(gdi_display, False);
+        XGetGCValues(gdi_display, surface->composed_gc,
+                GCSubwindowMode | GCClipXOrigin | GCClipYOrigin, &values);
+        if (dest_x >= 0 && dest_y >= 0)
+            published = XGetImage(gdi_display, surface->window, dest_x, dest_y, 1, 1,
+                    AllPlanes, ZPixmap);
+        TRACE_(dcomp)("publish drawable %#lx sample image %s/%#lx dest %d,%d X pixel %#lx "
+                "gc %p subwindow %d clip-origin %d,%d shm %u in-dirty %u rect %s dirty %s\n",
+                surface->window, wine_dbgstr_point(&dcomp_trace_sample), composed_pixel,
+                dest_x, dest_y, published ? XGetPixel(published, 0, 0) : ~0ul,
+                surface->composed_gc, values.subwindow_mode, values.clip_x_origin,
+                values.clip_y_origin, used_shm, in_dirty, wine_dbgstr_rect(rect),
+                wine_dbgstr_rect(dirty));
+        if (published) XDestroyImage(published);
+    }
 
     return TRUE;
 }
@@ -1868,6 +1973,7 @@ static void x11drv_surface_destroy( struct window_surface *window_surface )
     TRACE( "freeing %p\n", surface );
     if (surface->gc) XFreeGC( gdi_display, surface->gc );
     if (surface->image) x11drv_image_destroy( surface->image );
+    destroy_composed_output( surface );
 }
 
 static const struct window_surface_funcs x11drv_surface_funcs =
@@ -1941,6 +2047,7 @@ static struct window_surface *create_surface( HWND hwnd, Window window, const XV
     {
         surface = get_x11_surface( window_surface );
         surface->image = image;
+        surface->visual = *vis;
         surface->byteswap = byteswap;
         surface->window = window;
         surface->gc = XCreateGC( gdi_display, window, 0, NULL );

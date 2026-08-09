@@ -24,12 +24,18 @@
 #endif
 
 #include <assert.h>
+#include <math.h>
 #include <pthread.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "ntstatus.h"
 #include "ntgdi_private.h"
 #include "ntuser_private.h"
 #include "wine/winbase16.h"
+#include "wine/dcomp_driver.h"
 #include "wine/list.h"
 #include "wine/debug.h"
 
@@ -1349,6 +1355,293 @@ static const struct user_driver_funcs lazy_load_driver =
 };
 
 const struct user_driver_funcs *user_driver = &lazy_load_driver;
+
+static BOOL dcomp_mode_valid( uint32_t value, uint32_t maximum )
+{
+    return value <= maximum || value == UINT32_MAX;
+}
+
+static BOOL dcomp_graph_valid( const struct wine_dcomp_scene *scene,
+                              const struct wine_dcomp_target *targets,
+                              const struct wine_dcomp_visual *visuals )
+{
+    BYTE *children = NULL, *roots = NULL;
+    unsigned int i;
+    BOOL ret = FALSE;
+
+    if (scene->visual_count && (!(children = calloc( scene->visual_count, 1 ))
+            || !(roots = calloc( scene->visual_count, 1 )))) goto done;
+    for (i = 0; i < scene->target_count; ++i)
+    {
+        uint32_t root = targets[i].root_visual;
+
+        if (root == WINE_DCOMP_INVALID_INDEX) continue;
+        if (visuals[root].parent != WINE_DCOMP_INVALID_INDEX || roots[root]) goto done;
+        roots[root] = 1;
+    }
+    for (i = 0; i < scene->visual_count; ++i)
+    {
+        uint32_t child = visuals[i].first_child;
+        unsigned int steps = 0;
+
+        while (child != WINE_DCOMP_INVALID_INDEX)
+        {
+            if (child >= scene->visual_count || child == i || ++steps > scene->visual_count
+                    || visuals[child].parent != i || children[child]) goto done;
+            children[child] = 1;
+            child = visuals[child].next_sibling;
+        }
+    }
+    for (i = 0; i < scene->visual_count; ++i)
+    {
+        uint32_t current = i;
+        unsigned int steps = 0;
+
+        if ((visuals[i].parent == WINE_DCOMP_INVALID_INDEX) != !children[i]) goto done;
+        while (visuals[current].parent != WINE_DCOMP_INVALID_INDEX)
+        {
+            if (++steps > scene->visual_count) goto done;
+            current = visuals[current].parent;
+        }
+        if (!roots[current]) goto done;
+    }
+    ret = TRUE;
+
+done:
+    free( roots );
+    free( children );
+    return ret;
+}
+
+static BOOL dcomp_scene_items_valid( const struct wine_dcomp_scene *scene )
+{
+    const struct wine_dcomp_target *targets = (const void *)((const char *)scene
+            + scene->target_offset);
+    const struct wine_dcomp_visual *visuals = (const void *)((const char *)scene
+            + scene->visual_offset);
+    const struct wine_dcomp_surface *surfaces = (const void *)((const char *)scene
+            + scene->surface_offset);
+    unsigned int i, j;
+
+    if (!scene->device_id || !scene->generation) return FALSE;
+    if (scene->update_kind == WINE_DCOMP_UPDATE_DESTROY)
+        return !scene->target_count && !scene->visual_count && !scene->surface_count;
+    if (scene->update_kind == WINE_DCOMP_UPDATE_SURFACES
+            && (scene->target_count || scene->visual_count)) return FALSE;
+
+    for (i = 0; i < scene->target_count; ++i)
+    {
+        if (!targets[i].hwnd || !targets[i].target_id
+                || targets[i].flags & ~WINE_DCOMP_TARGET_TOPMOST
+                || (targets[i].root_visual != WINE_DCOMP_INVALID_INDEX
+                && targets[i].root_visual >= scene->visual_count)) return FALSE;
+        for (j = 0; j < i; ++j)
+            if (targets[j].target_id == targets[i].target_id) return FALSE;
+    }
+
+    for (i = 0; i < scene->visual_count; ++i)
+    {
+        const struct wine_dcomp_visual *visual = &visuals[i];
+
+        if (visual->reserved
+                || visual->flags & ~(WINE_DCOMP_VISUAL_HAS_TRANSFORM
+                | WINE_DCOMP_VISUAL_HAS_CLIP)
+                || (visual->parent != WINE_DCOMP_INVALID_INDEX
+                && visual->parent >= scene->visual_count)
+                || (visual->first_child != WINE_DCOMP_INVALID_INDEX
+                && visual->first_child >= scene->visual_count)
+                || (visual->next_sibling != WINE_DCOMP_INVALID_INDEX
+                && visual->next_sibling >= scene->visual_count)
+                || visual->parent == i || visual->first_child == i
+                || visual->next_sibling == i
+                || visual->content_kind > WINE_DCOMP_CONTENT_SWAPCHAIN
+                || (visual->content_kind == WINE_DCOMP_CONTENT_NONE
+                ? visual->content != WINE_DCOMP_INVALID_INDEX
+                : visual->content >= scene->surface_count)
+                || !dcomp_mode_valid( visual->interpolation_mode, 1 )
+                || !dcomp_mode_valid( visual->border_mode, 1 )
+                || !dcomp_mode_valid( visual->composite_mode, 2 )
+                || !dcomp_mode_valid( visual->opacity_mode, 1 )
+                || !dcomp_mode_valid( visual->backface_visibility, 1 )
+                || !isfinite( visual->opacity ) || visual->opacity < 0.0f
+                || visual->opacity > 1.0f || !isfinite( visual->offset_x )
+                || !isfinite( visual->offset_y )) return FALSE;
+        for (j = 0; j < ARRAY_SIZE(visual->transform); ++j)
+            if (!isfinite( visual->transform[j] )) return FALSE;
+        if (visual->flags & WINE_DCOMP_VISUAL_HAS_CLIP)
+        {
+            for (j = 0; j < ARRAY_SIZE(visual->clip); ++j)
+                if (!isfinite( visual->clip[j] )) return FALSE;
+            if (visual->clip[2] < visual->clip[0] || visual->clip[3] < visual->clip[1])
+                return FALSE;
+        }
+        if (visual->first_child != WINE_DCOMP_INVALID_INDEX
+                && visuals[visual->first_child].parent != i) return FALSE;
+        if (visual->next_sibling != WINE_DCOMP_INVALID_INDEX
+                && visuals[visual->next_sibling].parent != visual->parent) return FALSE;
+        if (visual->parent != WINE_DCOMP_INVALID_INDEX)
+        {
+            uint32_t child = visuals[visual->parent].first_child;
+            unsigned int steps = 0, matches = 0;
+
+            while (child != WINE_DCOMP_INVALID_INDEX)
+            {
+                if (child >= scene->visual_count || ++steps > scene->visual_count) return FALSE;
+                if (child == i) ++matches;
+                child = visuals[child].next_sibling;
+            }
+            if (matches != 1) return FALSE;
+        }
+    }
+
+    for (i = 0; i < scene->surface_count; ++i)
+    {
+        const struct wine_dcomp_surface *surface = &surfaces[i];
+        BOOL uuid_nonzero = FALSE;
+        BOOL has_front = !!(surface->flags & WINE_DCOMP_SURFACE_HAS_FRONT);
+
+        for (j = 0; j < ARRAY_SIZE(surface->device_uuid); ++j)
+            if (surface->device_uuid[j]) uuid_nonzero = TRUE;
+        if (!has_front && !surface->width)
+        {
+            if (surface->resource || surface->resource_type || surface->sync_resource
+                    || surface->sync_resource_type || surface->sync_type
+                    || surface->sync_value || surface->height
+                    || surface->format || surface->alpha_mode || surface->adapter_luid
+                    || uuid_nonzero || surface->buffer_count || surface->front_buffer
+                    || surface->memory_type_index || surface->image_usage
+                    || surface->image_flags || surface->sample_count
+                    || surface->mip_levels || surface->array_layers
+                    || surface->damage_left || surface->damage_top
+                    || surface->damage_right || surface->damage_bottom) return FALSE;
+            continue;
+        }
+        if (surface->flags & ~WINE_DCOMP_SURFACE_HAS_FRONT
+                || !surface->width || surface->width > 16384
+                || !surface->height || surface->height > 16384
+                || (surface->format != 28 && surface->format != 29
+                && surface->format != 87 && surface->format != 91)
+                || (surface->alpha_mode != 1 && surface->alpha_mode != 3)
+                || !uuid_nonzero || !surface->buffer_count || surface->buffer_count > 16
+                || surface->front_buffer >= surface->buffer_count
+                || surface->memory_type_index >= 32
+                || surface->image_usage & ~(WINE_DCOMP_IMAGE_TRANSFER_SRC
+                | WINE_DCOMP_IMAGE_TRANSFER_DST | WINE_DCOMP_IMAGE_SAMPLED
+                | WINE_DCOMP_IMAGE_COLOR_ATTACHMENT)
+                || !(surface->image_usage & WINE_DCOMP_IMAGE_TRANSFER_SRC)
+                || surface->image_flags & ~(WINE_DCOMP_IMAGE_ALIAS
+                | WINE_DCOMP_IMAGE_MUTABLE_FORMAT | WINE_DCOMP_IMAGE_OPTIMAL_TILING
+                | WINE_DCOMP_IMAGE_DEDICATED_ALLOCATION)
+                || !(surface->image_flags & WINE_DCOMP_IMAGE_OPTIMAL_TILING)
+                || surface->sample_count != 1 || surface->mip_levels != 1
+                || surface->array_layers != 1 || surface->damage_left < 0
+                || surface->damage_top < 0 || surface->damage_right < surface->damage_left
+                || surface->damage_bottom < surface->damage_top
+                || surface->damage_right > surface->width
+                || surface->damage_bottom > surface->height) return FALSE;
+        if (has_front)
+        {
+            if (surface->resource_type != WINE_DCOMP_RESOURCE_WIN32_HANDLE
+                    || !surface->resource
+                    || surface->sync_resource_type != WINE_DCOMP_RESOURCE_WIN32_HANDLE
+                    || !surface->sync_resource
+                    || surface->sync_type != WINE_DCOMP_SYNC_TIMELINE
+                    || !surface->sync_value) return FALSE;
+        }
+        else if (surface->resource || surface->resource_type || surface->sync_resource
+                || surface->sync_resource_type || surface->sync_type
+                || surface->sync_value) return FALSE;
+    }
+    return scene->update_kind != WINE_DCOMP_UPDATE_COMMIT
+            || dcomp_graph_valid( scene, targets, visuals );
+}
+
+BOOL __wine_dcomp_update( const struct wine_dcomp_scene *scene, UINT size )
+{
+    struct wine_dcomp_scene *copy;
+    struct wine_dcomp_surface *surfaces;
+    size_t target_offset, visual_offset, surface_offset, surface_bytes;
+    unsigned int i;
+    BOOL ret = FALSE;
+
+    if (user_driver == &lazy_load_driver) load_driver();
+    if (!user_driver->pDCompositionUpdate) return FALSE;
+    if (!scene || size < sizeof(*scene) || scene->abi_version != WINE_DCOMP_DRIVER_ABI_VERSION
+            || scene->byte_size != size || scene->reserved
+            || scene->update_kind < WINE_DCOMP_UPDATE_COMMIT
+            || scene->update_kind > WINE_DCOMP_UPDATE_DESTROY
+            || scene->target_count > 4096 || scene->visual_count > 4096
+            || scene->surface_count > 4096)
+        return FALSE;
+    target_offset = (sizeof(*scene) + 7) & ~(size_t)7;
+    visual_offset = (target_offset + scene->target_count * sizeof(struct wine_dcomp_target) + 7)
+            & ~(size_t)7;
+    surface_offset = (visual_offset + scene->visual_count * sizeof(struct wine_dcomp_visual) + 7)
+            & ~(size_t)7;
+    surface_bytes = scene->surface_count * sizeof(*surfaces);
+    if (scene->target_offset != target_offset || scene->visual_offset != visual_offset
+            || scene->surface_offset != surface_offset || surface_offset > size
+            || surface_bytes != size - surface_offset || !dcomp_scene_items_valid( scene ))
+        return FALSE;
+    if (!(copy = malloc( size ))) return FALSE;
+    memcpy( copy, scene, size );
+    surfaces = (struct wine_dcomp_surface *)((char *)copy + copy->surface_offset);
+
+    for (i = 0; i < copy->surface_count; ++i)
+    {
+        D3DKMT_HANDLE local, mutex = 0, sync = 0, publication_sync = 0;
+        int fd, sync_fd;
+
+        if (!(surfaces[i].flags & WINE_DCOMP_SURFACE_HAS_FRONT)) continue;
+        if (surfaces[i].resource_type != WINE_DCOMP_RESOURCE_WIN32_HANDLE
+                || !surfaces[i].resource)
+            goto done;
+        local = d3dkmt_open_resource( 0, (HANDLE)(UINT_PTR)surfaces[i].resource,
+                &mutex, &sync );
+        if (!local || (fd = d3dkmt_object_get_fd( local )) < 0)
+        {
+            if (local) d3dkmt_destroy_resource( local );
+            if (mutex) d3dkmt_destroy_mutex( mutex );
+            if (sync) d3dkmt_destroy_sync( sync );
+            goto done;
+        }
+        d3dkmt_destroy_resource( local );
+        if (mutex) d3dkmt_destroy_mutex( mutex );
+        if (sync) d3dkmt_destroy_sync( sync );
+        surfaces[i].resource = fd;
+        surfaces[i].resource_type = WINE_DCOMP_RESOURCE_OPAQUE_FD;
+        if (TRACE_ON(driver))
+        {
+            struct stat st;
+            if (!fstat( fd, &st )) TRACE( "DComp surface %u memory fd %d dev %s ino %s size %s\n", i, fd,
+                    wine_dbgstr_longlong(st.st_dev), wine_dbgstr_longlong(st.st_ino),
+                    wine_dbgstr_longlong(st.st_size) );
+        }
+        publication_sync = d3dkmt_open_sync( 0,
+                (HANDLE)(UINT_PTR)surfaces[i].sync_resource );
+        if (!publication_sync || (sync_fd = d3dkmt_object_get_fd( publication_sync )) < 0)
+        {
+            if (publication_sync) d3dkmt_destroy_sync( publication_sync );
+            goto done;
+        }
+        d3dkmt_destroy_sync( publication_sync );
+        surfaces[i].sync_resource = sync_fd;
+        surfaces[i].sync_resource_type = WINE_DCOMP_RESOURCE_OPAQUE_FD;
+    }
+
+    ret = user_driver->pDCompositionUpdate( copy, size );
+
+done:
+    for (i = 0; i < copy->surface_count; ++i)
+    {
+        if (surfaces[i].resource_type == WINE_DCOMP_RESOURCE_OPAQUE_FD)
+            close( surfaces[i].resource );
+        if (surfaces[i].sync_resource_type == WINE_DCOMP_RESOURCE_OPAQUE_FD)
+            close( surfaces[i].sync_resource );
+    }
+    free( copy );
+    return ret;
+}
 
 /******************************************************************************
  *	     __wine_set_user_driver   (win32u.so)

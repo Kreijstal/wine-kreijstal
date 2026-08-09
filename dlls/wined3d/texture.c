@@ -675,6 +675,11 @@ static void wined3d_texture_destroy_object(void *object)
 
 void wined3d_texture_cleanup(struct wined3d_texture *texture)
 {
+    if (texture->shared_handle)
+    {
+        CloseHandle(texture->shared_handle);
+        texture->shared_handle = NULL;
+    }
     wined3d_cs_destroy_object(texture->resource.device->cs, wined3d_texture_destroy_object, texture);
     resource_cleanup(&texture->resource);
 }
@@ -1350,6 +1355,7 @@ HRESULT wined3d_texture_init(struct wined3d_texture *texture, const struct wined
     }
 
     texture->sub_resources = sub_resources;
+    texture->shared_handle = NULL;
 
     /* TODO: It should only be possible to create textures for formats
      * that are reported as supported. */
@@ -1468,6 +1474,8 @@ HRESULT wined3d_texture_init(struct wined3d_texture *texture, const struct wined
     texture->level_count = level_count;
     texture->lod = 0;
     texture->flags |= WINED3D_TEXTURE_DOWNLOADABLE;
+    if (flags & WINED3D_TEXTURE_CREATE_SHARED)
+        texture->flags |= WINED3D_TEXTURE_SHARED;
     if (flags & WINED3D_TEXTURE_CREATE_GET_DC_LENIENT)
     {
         texture->flags |= WINED3D_TEXTURE_GET_DC_LENIENT;
@@ -1931,6 +1939,109 @@ HRESULT CDECL wined3d_texture_get_dc(struct wined3d_texture *texture, unsigned i
     return WINED3D_OK;
 }
 
+struct wined3d_texture_export_shared_handle
+{
+    struct wined3d_texture *texture;
+    HANDLE handle;
+    unsigned int memory_type_index;
+    HRESULT hr;
+};
+
+static void wined3d_texture_export_shared_handle_cs(void *object)
+{
+    struct wined3d_texture_export_shared_handle *request = object;
+
+    request->hr = request->texture->texture_ops->texture_export_shared_handle(
+            request->texture, &request->handle, &request->memory_type_index);
+}
+
+HRESULT CDECL wined3d_texture_export_shared_handle(struct wined3d_texture *texture, HANDLE *handle,
+        unsigned int *memory_type_index)
+{
+    struct wined3d_texture_export_shared_handle request;
+
+    if (!handle || !memory_type_index) return E_INVALIDARG;
+    *handle = NULL;
+    *memory_type_index = ~0u;
+    if (!(texture->flags & WINED3D_TEXTURE_SHARED)
+            || !texture->texture_ops->texture_export_shared_handle)
+    {
+        WARN("Texture %p is not exportable (flags %#x, export callback %p).\n",
+                texture, texture->flags, texture->texture_ops->texture_export_shared_handle);
+        return E_NOTIMPL;
+    }
+
+    request.texture = texture;
+    request.handle = NULL;
+    request.memory_type_index = ~0u;
+    request.hr = E_FAIL;
+    wined3d_cs_init_object(texture->resource.device->cs,
+            wined3d_texture_export_shared_handle_cs, &request);
+    wined3d_cs_finish(texture->resource.device->cs, WINED3D_CS_QUEUE_DEFAULT);
+    if (SUCCEEDED(request.hr))
+    {
+        *handle = request.handle;
+        *memory_type_index = request.memory_type_index;
+    }
+    return request.hr;
+}
+
+HRESULT CDECL wined3d_texture_enable_sharing(struct wined3d_texture *texture)
+{
+    if (!texture->texture_ops->texture_export_shared_handle)
+        return E_NOTIMPL;
+    if (texture->flags & WINED3D_TEXTURE_RGB_ALLOCATED)
+        return WINED3DERR_INVALIDCALL;
+    texture->flags |= WINED3D_TEXTURE_SHARED;
+    return S_OK;
+}
+
+HRESULT CDECL wined3d_texture_import_shared_handle(struct wined3d_texture *texture, HANDLE handle)
+{
+    TRACE("texture %p, handle %p, flags %#x.\n", texture, handle, texture->flags);
+    if (!handle || !(texture->flags & WINED3D_TEXTURE_SHARED)
+            || !texture->texture_ops->texture_import_shared_handle)
+        return E_INVALIDARG;
+    if (texture->flags & WINED3D_TEXTURE_RGB_ALLOCATED)
+        return WINED3DERR_INVALIDCALL;
+    return texture->texture_ops->texture_import_shared_handle(texture, handle);
+}
+
+struct wined3d_texture_publish_shared
+{
+    struct wined3d_texture *texture;
+    HANDLE sync_handle;
+    HRESULT hr;
+};
+
+static void wined3d_texture_publish_shared_cs(void *object)
+{
+    struct wined3d_texture_publish_shared *request = object;
+
+    request->hr = request->texture->texture_ops->texture_publish_shared(request->texture,
+            &request->sync_handle);
+}
+
+HRESULT CDECL wined3d_texture_publish_shared(struct wined3d_texture *texture,
+        HANDLE *sync_handle)
+{
+    struct wined3d_texture_publish_shared request;
+
+    if (!sync_handle) return E_INVALIDARG;
+    *sync_handle = NULL;
+    if (!(texture->flags & WINED3D_TEXTURE_SHARED)
+            || !texture->texture_ops->texture_publish_shared)
+        return E_NOTIMPL;
+    request.texture = texture;
+    request.sync_handle = NULL;
+    request.hr = E_FAIL;
+    wined3d_cs_init_object(texture->resource.device->cs,
+            wined3d_texture_publish_shared_cs, &request);
+    wined3d_cs_finish(texture->resource.device->cs, WINED3D_CS_QUEUE_DEFAULT);
+    if (SUCCEEDED(request.hr)) *sync_handle = request.sync_handle;
+    return request.hr;
+}
+
 HRESULT CDECL wined3d_texture_release_dc(struct wined3d_texture *texture, unsigned int sub_resource_idx, HDC dc)
 {
     struct wined3d_device *device = texture->resource.device;
@@ -2205,6 +2316,9 @@ static void wined3d_texture_no3d_unload_location(struct wined3d_texture *texture
 
 static const struct wined3d_texture_ops wined3d_texture_no3d_ops =
 {
+    NULL,
+    NULL,
+    NULL,
     wined3d_texture_no3d_prepare_location,
     wined3d_texture_no3d_load_location,
     wined3d_texture_no3d_unload_location,

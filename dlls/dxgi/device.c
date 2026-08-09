@@ -171,9 +171,9 @@ static HRESULT STDMETHODCALLTYPE dxgi_device_GetAdapter(IWineDXGIDevice *iface, 
     return S_OK;
 }
 
-static HRESULT STDMETHODCALLTYPE dxgi_device_CreateSurface(IWineDXGIDevice *iface,
+static HRESULT dxgi_device_create_surfaces(IWineDXGIDevice *iface,
         const DXGI_SURFACE_DESC *desc, UINT surface_count, DXGI_USAGE usage,
-        const DXGI_SHARED_RESOURCE *shared_resource, IDXGISurface **surface)
+        const DXGI_SHARED_RESOURCE *shared_resource, UINT texture_flags, IDXGISurface **surface)
 {
     struct dxgi_device *device = impl_from_IWineDXGIDevice(iface);
     struct wined3d_resource_desc surface_desc;
@@ -211,7 +211,8 @@ static HRESULT STDMETHODCALLTYPE dxgi_device_CreateSurface(IWineDXGIDevice *ifac
         struct wined3d_texture *wined3d_texture;
 
         if (FAILED(hr = wined3d_texture_create(device->wined3d_device, &surface_desc,
-                1, 1, 0, NULL, NULL, &dxgi_null_wined3d_parent_ops, &wined3d_texture)))
+                1, 1, texture_flags, NULL, NULL,
+                &dxgi_null_wined3d_parent_ops, &wined3d_texture)))
         {
             ERR("Failed to create wined3d texture, hr %#lx.\n", hr);
             goto fail;
@@ -236,11 +237,17 @@ static HRESULT STDMETHODCALLTYPE dxgi_device_CreateSurface(IWineDXGIDevice *ifac
 fail:
     wined3d_mutex_unlock();
     for (j = 0; j < i; ++j)
-    {
-        IDXGISurface_Release(surface[i]);
-    }
+        IDXGISurface_Release(surface[j]);
     IWineDXGIDeviceParent_Release(dxgi_device_parent);
     return hr;
+}
+
+static HRESULT STDMETHODCALLTYPE dxgi_device_CreateSurface(IWineDXGIDevice *iface,
+        const DXGI_SURFACE_DESC *desc, UINT surface_count, DXGI_USAGE usage,
+        const DXGI_SHARED_RESOURCE *shared_resource, IDXGISurface **surface)
+{
+    return dxgi_device_create_surfaces(iface, desc, surface_count, usage,
+            shared_resource, 0, surface);
 }
 
 static HRESULT STDMETHODCALLTYPE dxgi_device_QueryResourceResidency(IWineDXGIDevice *iface,
@@ -361,6 +368,75 @@ static HRESULT STDMETHODCALLTYPE dxgi_device_create_resource(IWineDXGIDevice *if
     return S_OK;
 }
 
+static HRESULT STDMETHODCALLTYPE dxgi_device_create_composition_shared_handle(
+        IWineDXGIDevice *iface, IDXGISurface *surface, HANDLE *handle,
+        UINT *memory_type_index)
+{
+    TRACE("iface %p, surface %p, handle %p, memory_type_index %p.\n",
+            iface, surface, handle, memory_type_index);
+    if (!surface) return E_INVALIDARG;
+    return dxgi_surface_create_shared_handle(surface, handle, memory_type_index);
+}
+
+static HRESULT STDMETHODCALLTYPE dxgi_device_create_composition_surfaces(
+        IWineDXGIDevice *iface, const DXGI_SURFACE_DESC *desc, UINT surface_count,
+        DXGI_USAGE usage, IDXGISurface **surfaces)
+{
+    if (!desc || !surface_count || !surfaces) return E_INVALIDARG;
+    return dxgi_device_create_surfaces(iface, desc, surface_count, usage,
+            NULL, WINED3D_TEXTURE_CREATE_SHARED, surfaces);
+}
+
+static HRESULT STDMETHODCALLTYPE dxgi_device_publish_composition_surface(
+        IWineDXGIDevice *iface, IDXGISurface *surface, HANDLE *sync_handle)
+{
+    if (!surface || !sync_handle) return E_INVALIDARG;
+    return dxgi_surface_publish_shared(surface, sync_handle);
+}
+
+static HRESULT STDMETHODCALLTYPE dxgi_device_open_composition_shared_surface(
+        IWineDXGIDevice *iface, HANDLE handle, const DXGI_SURFACE_DESC *desc,
+        DXGI_USAGE usage, IDXGISurface **surface)
+{
+    struct dxgi_device *device = impl_from_IWineDXGIDevice(iface);
+    IWineDXGIDeviceParent *device_parent;
+    struct wined3d_resource_desc resource_desc;
+    struct wined3d_texture *texture;
+    HRESULT hr;
+
+    if (!handle || !desc || !surface) return E_INVALIDARG;
+    *surface = NULL;
+    if (FAILED(hr = IWineDXGIDevice_QueryInterface(iface, &IID_IWineDXGIDeviceParent,
+            (void **)&device_parent)))
+        return hr;
+
+    resource_desc.resource_type = WINED3D_RTYPE_TEXTURE_2D;
+    resource_desc.format = wined3dformat_from_dxgi_format(desc->Format);
+    wined3d_sample_desc_from_dxgi(&resource_desc.multisample_type,
+            &resource_desc.multisample_quality, &desc->SampleDesc);
+    resource_desc.bind_flags = wined3d_bind_flags_from_dxgi_usage(usage);
+    resource_desc.usage = 0;
+    resource_desc.access = WINED3D_RESOURCE_ACCESS_GPU;
+    resource_desc.width = desc->Width;
+    resource_desc.height = desc->Height;
+    resource_desc.depth = 1;
+    resource_desc.size = 0;
+
+    wined3d_mutex_lock();
+    if (SUCCEEDED(hr = wined3d_texture_create(device->wined3d_device, &resource_desc,
+            1, 1, WINED3D_TEXTURE_CREATE_SHARED, NULL, NULL,
+            &dxgi_null_wined3d_parent_ops, &texture)))
+    {
+        if (SUCCEEDED(hr = wined3d_texture_import_shared_handle(texture, handle)))
+            hr = IWineDXGIDeviceParent_register_swapchain_texture(device_parent,
+                    texture, 0, surface);
+        wined3d_texture_decref(texture);
+    }
+    wined3d_mutex_unlock();
+    IWineDXGIDeviceParent_Release(device_parent);
+    return hr;
+}
+
 static const struct IWineDXGIDeviceVtbl dxgi_device_vtbl =
 {
     /* IUnknown methods */
@@ -389,6 +465,10 @@ static const struct IWineDXGIDeviceVtbl dxgi_device_vtbl =
     dxgi_device_Trim,
     /* IWineDXGIDevice methods */
     dxgi_device_create_resource,
+    dxgi_device_create_composition_shared_handle,
+    dxgi_device_create_composition_surfaces,
+    dxgi_device_publish_composition_surface,
+    dxgi_device_open_composition_shared_surface,
 };
 
 static inline struct dxgi_device *impl_from_IWineDXGISwapChainFactory(IWineDXGISwapChainFactory *iface)

@@ -253,6 +253,7 @@ extern BOOL X11DRV_GetWindowStyleMasks( HWND hwnd, UINT style, UINT ex_style, UI
 extern BOOL X11DRV_GetWindowStateUpdates( HWND hwnd, UINT *state_cmd, UINT *swp_flags, RECT *rect, HWND *foreground );
 extern struct client_surface *X11DRV_CreateClientSurface( HWND hwnd, int format );
 extern BOOL X11DRV_CreateWindowSurface( HWND hwnd, BOOL layered, const RECT *surface_rect, struct window_surface **surface );
+extern BOOL X11DRV_DCompositionUpdate( const struct wine_dcomp_scene *scene, UINT size );
 extern void X11DRV_MoveWindowBits( HWND hwnd, const struct window_rects *old_rects,
                                    const struct window_rects *new_rects, const RECT *valid_rects );
 extern void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UINT swp_flags,
@@ -261,6 +262,13 @@ extern BOOL X11DRV_SystemParametersInfo( UINT action, UINT int_param, void *ptr_
                                          UINT flags );
 extern LRESULT X11DRV_WintabProc( HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam, void *buffer );
 extern void X11DRV_ThreadDetach(void);
+
+extern BOOL x11drv_dcomp_compose( HWND hwnd, const RECT *surface_rect,
+                                  UINT32 *pixels, int width, int height, int stride,
+                                  POINT *trace_sample );
+extern BOOL x11drv_dcomp_has_targets( HWND hwnd );
+extern void x11drv_dcomp_window_changed( HWND hwnd );
+extern void x11drv_dcomp_window_destroyed( HWND hwnd );
 
 /* X11 driver internal functions */
 

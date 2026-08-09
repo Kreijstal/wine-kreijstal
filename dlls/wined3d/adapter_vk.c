@@ -168,6 +168,7 @@ struct wined3d_physical_device_info
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT dynamic_state2_features;
     VkPhysicalDeviceExtendedDynamicState3FeaturesEXT dynamic_state3_features;
     VkPhysicalDeviceHostQueryResetFeatures host_query_reset_features;
+    VkPhysicalDeviceTimelineSemaphoreFeatures timeline_semaphore_features;
     VkPhysicalDeviceShaderDrawParametersFeatures draw_parameters_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
@@ -295,12 +296,23 @@ static void add_structure(VkPhysicalDeviceFeatures2 *features2, void *s)
 
 static void get_physical_device_info(const struct wined3d_adapter_vk *adapter_vk, struct wined3d_physical_device_info *info)
 {
+    VkExternalSemaphoreProperties semaphore_properties =
+    {
+        .sType = VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES,
+    };
+    VkPhysicalDeviceExternalSemaphoreInfo semaphore_info =
+    {
+        .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO,
+        .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT,
+    };
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features = &info->vertex_divisor_features;
     VkPhysicalDeviceExtendedDynamicState3FeaturesEXT *dynamic_state3_features = &info->dynamic_state3_features;
     VkPhysicalDeviceExtendedDynamicState2FeaturesEXT *dynamic_state2_features = &info->dynamic_state2_features;
     VkPhysicalDeviceShaderDrawParametersFeatures *draw_parameters_features = &info->draw_parameters_features;
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT *dynamic_state_features = &info->dynamic_state_features;
     VkPhysicalDeviceHostQueryResetFeatures *host_query_reset_features = &info->host_query_reset_features;
+    VkPhysicalDeviceTimelineSemaphoreFeatures *timeline_semaphore_features =
+            &info->timeline_semaphore_features;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb_features = &info->xfb_features;
     VkPhysicalDevice physical_device = adapter_vk->physical_device;
     const struct wined3d_vk_info *vk_info = &adapter_vk->vk_info;
@@ -326,6 +338,11 @@ static void get_physical_device_info(const struct wined3d_adapter_vk *adapter_vk
     if (vk_info->supported[WINED3D_VK_EXT_HOST_QUERY_RESET])
         add_structure(features2, host_query_reset_features);
 
+    timeline_semaphore_features->sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES;
+    if (vk_info->supported[WINED3D_VK_KHR_TIMELINE_SEMAPHORE])
+        add_structure(features2, timeline_semaphore_features);
+
     dynamic_state3_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT;
     if (vk_info->supported[WINED3D_VK_EXT_EXTENDED_DYNAMIC_STATE3])
         add_structure(features2, dynamic_state3_features);
@@ -344,6 +361,19 @@ static void get_physical_device_info(const struct wined3d_adapter_vk *adapter_vk
         VK_CALL(vkGetPhysicalDeviceFeatures2(physical_device, features2));
     else
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2->features));
+
+    if (timeline_semaphore_features->timelineSemaphore
+            && vk_info->supported[WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32])
+    {
+        if (VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties))
+            VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties(physical_device,
+                    &semaphore_info, &semaphore_properties));
+        if (!(semaphore_properties.externalSemaphoreFeatures
+                & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT)
+                || !(semaphore_properties.externalSemaphoreFeatures
+                & VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT))
+            timeline_semaphore_features->timelineSemaphore = VK_FALSE;
+    }
 }
 
 static HRESULT adapter_vk_create_device(struct wined3d *wined3d, const struct wined3d_adapter *adapter,
@@ -423,6 +453,8 @@ static HRESULT adapter_vk_create_device(struct wined3d *wined3d, const struct wi
                 0, &device_vk->decode_queue.vk_queue));
 
     device_vk->vk_info = *vk_info;
+    device_vk->vk_info.timeline_semaphore =
+            physical_device_info.timeline_semaphore_features.timelineSemaphore;
 #define VK_DEVICE_PFN(name) \
     if (!(device_vk->vk_info.vk_ops.name = (void *)VK_CALL(vkGetDeviceProcAddr(vk_device, #name)))) \
     { \
@@ -435,6 +467,38 @@ static HRESULT adapter_vk_create_device(struct wined3d *wined3d, const struct wi
     VK_DEVICE_FUNCS()
 #undef VK_DEVICE_EXT_PFN
 #undef VK_DEVICE_PFN
+
+    /* Winevulkan implements the Win32 external-memory entry points as
+     * loader-side translations to host fd-backed D3DKMT resources.  Like the
+     * Vulkan loader, it exposes device children through vkGetInstanceProcAddr,
+     * even when vkGetDeviceProcAddr does not return an optional thunk. */
+    if (device_vk->vk_info.supported[WINED3D_VK_KHR_EXTERNAL_MEMORY_WIN32])
+    {
+        if (!device_vk->vk_info.vk_ops.vkGetMemoryWin32HandleKHR)
+            device_vk->vk_info.vk_ops.vkGetMemoryWin32HandleKHR =
+                    (void *)VK_CALL(vkGetInstanceProcAddr(vk_info->instance,
+                    "vkGetMemoryWin32HandleKHR"));
+        if (!device_vk->vk_info.vk_ops.vkGetMemoryWin32HandleKHR)
+            device_vk->vk_info.vk_ops.vkGetMemoryWin32HandleKHR = (void *)GetProcAddress(
+                    vk_info->vulkan_lib, "vkGetMemoryWin32HandleKHR");
+        if (!device_vk->vk_info.vk_ops.vkGetMemoryWin32HandlePropertiesKHR)
+            device_vk->vk_info.vk_ops.vkGetMemoryWin32HandlePropertiesKHR =
+                    (void *)VK_CALL(vkGetInstanceProcAddr(vk_info->instance,
+                    "vkGetMemoryWin32HandlePropertiesKHR"));
+        if (!device_vk->vk_info.vk_ops.vkGetMemoryWin32HandlePropertiesKHR)
+            device_vk->vk_info.vk_ops.vkGetMemoryWin32HandlePropertiesKHR = (void *)GetProcAddress(
+                    vk_info->vulkan_lib, "vkGetMemoryWin32HandlePropertiesKHR");
+    }
+    if (device_vk->vk_info.supported[WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32])
+    {
+        if (!device_vk->vk_info.vk_ops.vkGetSemaphoreWin32HandleKHR)
+            device_vk->vk_info.vk_ops.vkGetSemaphoreWin32HandleKHR =
+                    (void *)VK_CALL(vkGetInstanceProcAddr(vk_info->instance,
+                    "vkGetSemaphoreWin32HandleKHR"));
+        if (!device_vk->vk_info.vk_ops.vkGetSemaphoreWin32HandleKHR)
+            device_vk->vk_info.vk_ops.vkGetSemaphoreWin32HandleKHR = (void *)GetProcAddress(
+                    vk_info->vulkan_lib, "vkGetSemaphoreWin32HandleKHR");
+    }
 
     if (!wined3d_allocator_init(&device_vk->allocator,
             adapter_vk->memory_properties.memoryTypeCount, &wined3d_allocator_vk_ops))
@@ -2415,6 +2479,11 @@ static bool wined3d_adapter_vk_init_device_extensions(struct wined3d_adapter_vk 
         {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,          ~0u},
         {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,    ~0u},
         {VK_KHR_MAINTENANCE1_EXTENSION_NAME,                VK_API_VERSION_1_1, true},
+        {VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,             VK_API_VERSION_1_1},
+        {VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,       ~0u},
+        {VK_KHR_EXTERNAL_SEMAPHORE_EXTENSION_NAME,          VK_API_VERSION_1_1},
+        {VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,    ~0u},
+        {VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,          VK_API_VERSION_1_2},
         {VK_KHR_MAINTENANCE2_EXTENSION_NAME,                VK_API_VERSION_1_1},
         {VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME,VK_API_VERSION_1_2},
         {VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,    VK_API_VERSION_1_1},
@@ -2443,6 +2512,9 @@ static bool wined3d_adapter_vk_init_device_extensions(struct wined3d_adapter_vk 
         {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,           WINED3D_VK_EXT_TRANSFORM_FEEDBACK},
         {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,     WINED3D_VK_EXT_VERTEX_ATTRIBUTE_DIVISOR},
         {VK_KHR_MAINTENANCE2_EXTENSION_NAME,                 WINED3D_VK_KHR_MAINTENANCE2},
+        {VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,        WINED3D_VK_KHR_EXTERNAL_MEMORY_WIN32},
+        {VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME,     WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32},
+        {VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME,           WINED3D_VK_KHR_TIMELINE_SEMAPHORE},
         {VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME, WINED3D_VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE},
         {VK_KHR_SAMPLER_YCBCR_CONVERSION_EXTENSION_NAME,     WINED3D_VK_KHR_SAMPLER_YCBCR_CONVERSION},
         {VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,       WINED3D_VK_KHR_SHADER_DRAW_PARAMETERS},

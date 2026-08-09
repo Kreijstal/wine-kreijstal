@@ -3538,6 +3538,111 @@ static void dump_alpc_create_port_reply( const struct alpc_create_port_reply *re
     fprintf( stderr, " handle=%04x", req->handle );
 }
 
+static void dump_dcomp_create_shared_visual_request( const struct dcomp_create_shared_visual_request *req )
+{
+}
+
+static void dump_dcomp_create_shared_visual_reply( const struct dcomp_create_shared_visual_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_dcomp_set_shared_visual_info_request( const struct dcomp_set_shared_visual_info_request *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+    dump_uint64( ", target_root=", &req->target_root );
+}
+
+static void dump_dcomp_get_shared_visual_info_request( const struct dcomp_get_shared_visual_info_request *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_dcomp_get_shared_visual_info_reply( const struct dcomp_get_shared_visual_info_reply *req )
+{
+    dump_uint64( " target_root=", &req->target_root );
+}
+
+static void dump_dcomp_create_surface_request( const struct dcomp_create_surface_request *req )
+{
+    fprintf( stderr, " access=%08x", req->access );
+    fprintf( stderr, ", attributes=%08x", req->attributes );
+}
+
+static void dump_dcomp_create_surface_reply( const struct dcomp_create_surface_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_dcomp_open_surface_request( const struct dcomp_open_surface_request *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_dcomp_open_surface_reply( const struct dcomp_open_surface_reply *req )
+{
+    fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_dcomp_bind_surface_request( const struct dcomp_bind_surface_request *req )
+{
+    fprintf( stderr, " surface=%04x", req->surface );
+    fprintf( stderr, ", payload_size=%u", req->payload_size );
+    dump_varargs_bytes( ", payload=", min( cur_size, req->payload_size ));
+}
+
+static void dump_dcomp_bind_surface_reply( const struct dcomp_bind_surface_reply *req )
+{
+    fprintf( stderr, " binding=%04x", req->binding );
+    fprintf( stderr, ", available_event=%04x", req->available_event );
+}
+
+static void dump_dcomp_update_surface_request( const struct dcomp_update_surface_request *req )
+{
+    fprintf( stderr, " binding=%04x", req->binding );
+    fprintf( stderr, ", payload_size=%u", req->payload_size );
+    dump_varargs_bytes( ", payload=", min( cur_size, req->payload_size ));
+}
+
+static void dump_dcomp_update_surface_reply( const struct dcomp_update_surface_reply *req )
+{
+    fprintf( stderr, " next_buffer=%08x", req->next_buffer );
+}
+
+static void dump_dcomp_query_surface_request( const struct dcomp_query_surface_request *req )
+{
+    fprintf( stderr, " surface=%04x", req->surface );
+}
+
+static void dump_dcomp_query_surface_reply( const struct dcomp_query_surface_reply *req )
+{
+    fprintf( stderr, " resource=%04x", req->resource );
+    fprintf( stderr, ", sync_resource=%04x", req->sync_resource );
+    fprintf( stderr, ", width=%08x", req->width );
+    fprintf( stderr, ", height=%08x", req->height );
+    fprintf( stderr, ", format=%08x", req->format );
+    fprintf( stderr, ", alpha_mode=%08x", req->alpha_mode );
+    dump_luid( ", adapter_luid=", &req->adapter_luid );
+    fprintf( stderr, ", buffer_count=%08x", req->buffer_count );
+    fprintf( stderr, ", front_buffer=%08x", req->front_buffer );
+    fprintf( stderr, ", generation=%08x", req->generation );
+    fprintf( stderr, ", has_front=%08x", req->has_front );
+}
+
+static void dump_dcomp_subscribe_surfaces_request( const struct dcomp_subscribe_surfaces_request *req )
+{
+    fprintf( stderr, " event=%04x", req->event );
+    fprintf( stderr, ", surfaces_size=%u", req->surfaces_size );
+    dump_varargs_bytes( ", surfaces=", min( cur_size, req->surfaces_size ));
+}
+
+static void dump_dcomp_subscribe_surfaces_reply( const struct dcomp_subscribe_surfaces_reply *req )
+{
+    fprintf( stderr, " subscription=%04x", req->subscription );
+    fprintf( stderr, ", snapshots_size=%u", req->snapshots_size );
+    dump_varargs_bytes( ", snapshots=", min( cur_size, req->snapshots_size ));
+}
+
 typedef void (*dump_func)( const void *req );
 
 static const dump_func req_dumpers[REQ_NB_REQUESTS] =
@@ -3850,6 +3955,15 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_d3dkmt_mutex_acquire_request,
     (dump_func)dump_d3dkmt_mutex_release_request,
     (dump_func)dump_alpc_create_port_request,
+    (dump_func)dump_dcomp_create_shared_visual_request,
+    (dump_func)dump_dcomp_set_shared_visual_info_request,
+    (dump_func)dump_dcomp_get_shared_visual_info_request,
+    (dump_func)dump_dcomp_create_surface_request,
+    (dump_func)dump_dcomp_open_surface_request,
+    (dump_func)dump_dcomp_bind_surface_request,
+    (dump_func)dump_dcomp_update_surface_request,
+    (dump_func)dump_dcomp_query_surface_request,
+    (dump_func)dump_dcomp_subscribe_surfaces_request,
 };
 
 static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
@@ -4162,6 +4276,15 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] =
     (dump_func)dump_d3dkmt_mutex_acquire_reply,
     NULL,
     (dump_func)dump_alpc_create_port_reply,
+    (dump_func)dump_dcomp_create_shared_visual_reply,
+    NULL,
+    (dump_func)dump_dcomp_get_shared_visual_info_reply,
+    (dump_func)dump_dcomp_create_surface_reply,
+    (dump_func)dump_dcomp_open_surface_reply,
+    (dump_func)dump_dcomp_bind_surface_reply,
+    (dump_func)dump_dcomp_update_surface_reply,
+    (dump_func)dump_dcomp_query_surface_reply,
+    (dump_func)dump_dcomp_subscribe_surfaces_reply,
 };
 
 static const char * const req_names[REQ_NB_REQUESTS] =
@@ -4474,6 +4597,15 @@ static const char * const req_names[REQ_NB_REQUESTS] =
     "d3dkmt_mutex_acquire",
     "d3dkmt_mutex_release",
     "alpc_create_port",
+    "dcomp_create_shared_visual",
+    "dcomp_set_shared_visual_info",
+    "dcomp_get_shared_visual_info",
+    "dcomp_create_surface",
+    "dcomp_open_surface",
+    "dcomp_bind_surface",
+    "dcomp_update_surface",
+    "dcomp_query_surface",
+    "dcomp_subscribe_surfaces",
 };
 
 static const struct

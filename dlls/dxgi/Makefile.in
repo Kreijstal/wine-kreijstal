@@ -7,6 +7,7 @@ VER_PRODUCTVERSION = 6,0,6000,16386
 
 SOURCES = \
 	adapter.c \
+	composition_swapchain.c \
 	device.c \
 	dxgi_main.c \
 	factory.c \

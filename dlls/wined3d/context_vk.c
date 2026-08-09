@@ -706,6 +706,138 @@ BOOL wined3d_context_vk_create_image(struct wined3d_context_vk *context_vk, VkIm
     return TRUE;
 }
 
+BOOL wined3d_context_vk_create_shared_image(struct wined3d_context_vk *context_vk,
+        VkImageType vk_image_type, VkImageUsageFlags usage, VkFormat vk_format,
+        unsigned int width, unsigned int height, unsigned int depth, unsigned int sample_count,
+        unsigned int mip_levels, unsigned int layer_count, unsigned int flags,
+        HANDLE import_handle, struct wined3d_image_vk *image)
+{
+    struct wined3d_adapter_vk *adapter_vk = wined3d_adapter_vk(context_vk->c.device->adapter);
+    struct wined3d_device_vk *device_vk = wined3d_device_vk(context_vk->c.device);
+    const struct wined3d_vk_info *vk_info = context_vk->vk_info;
+    VkExternalMemoryImageCreateInfo external_image_info;
+    VkMemoryDedicatedAllocateInfo dedicated_info;
+    VkExportMemoryAllocateInfo export_info;
+    VkImportMemoryWin32HandleInfoKHR import_info;
+    VkMemoryWin32HandlePropertiesKHR handle_properties;
+    VkMemoryRequirements requirements;
+    VkMemoryAllocateInfo allocate_info;
+    VkImageCreateInfo create_info;
+    unsigned int memory_type_idx;
+    VkResult vr;
+
+    if (!vk_info->supported[WINED3D_VK_KHR_EXTERNAL_MEMORY_WIN32]
+            || !VK_CALL(vkGetMemoryWin32HandlePropertiesKHR))
+    {
+        WARN("Win32 external memory is unavailable (extension %u, properties %p).\n",
+                vk_info->supported[WINED3D_VK_KHR_EXTERNAL_MEMORY_WIN32],
+                VK_CALL(vkGetMemoryWin32HandlePropertiesKHR));
+        return FALSE;
+    }
+
+    external_image_info.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    external_image_info.pNext = NULL;
+    external_image_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+
+    create_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    create_info.pNext = &external_image_info;
+    create_info.flags = flags;
+    create_info.imageType = vk_image_type;
+    create_info.format = vk_format;
+    create_info.extent.width = width;
+    create_info.extent.height = height;
+    create_info.extent.depth = depth;
+    create_info.mipLevels = mip_levels;
+    create_info.arrayLayers = layer_count;
+    create_info.samples = sample_count;
+    create_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    create_info.usage = usage;
+    create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    create_info.queueFamilyIndexCount = 0;
+    create_info.pQueueFamilyIndices = NULL;
+    create_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    image->memory = NULL;
+    image->memory_type_index = ~0u;
+    image->command_buffer_id = 0;
+    if ((vr = VK_CALL(vkCreateImage(device_vk->vk_device, &create_info,
+            NULL, &image->vk_image))) != VK_SUCCESS)
+    {
+        WARN("Failed to create a shared image, vr %s.\n", wined3d_debug_vkresult(vr));
+        return FALSE;
+    }
+
+    VK_CALL(vkGetImageMemoryRequirements(device_vk->vk_device, image->vk_image, &requirements));
+    TRACE("Shared image 0x%s import handle %p create format %u extent %ux%ux%u flags %#x usage %#x "
+            "samples %#x mips %u layers %u requirements size 0x%s alignment 0x%s bits %#x.\n",
+            wine_dbgstr_longlong(image->vk_image), import_handle, vk_format, width, height, depth,
+            flags, usage, sample_count, mip_levels, layer_count,
+            wine_dbgstr_longlong(requirements.size), wine_dbgstr_longlong(requirements.alignment),
+            requirements.memoryTypeBits);
+    if (import_handle)
+    {
+        handle_properties.sType = VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR;
+        handle_properties.pNext = NULL;
+        if ((vr = VK_CALL(vkGetMemoryWin32HandlePropertiesKHR(device_vk->vk_device,
+                VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT, import_handle,
+                &handle_properties))) != VK_SUCCESS)
+        {
+            WARN("Failed to query imported memory properties, vr %s.\n",
+                    wined3d_debug_vkresult(vr));
+            goto fail;
+        }
+        requirements.memoryTypeBits &= handle_properties.memoryTypeBits;
+    }
+
+    memory_type_idx = wined3d_adapter_vk_get_memory_type_index(adapter_vk,
+            requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (memory_type_idx == ~0u)
+    {
+        WARN("No device-local memory type is available for shared image bits %#x.\n",
+                requirements.memoryTypeBits);
+        goto fail;
+    }
+
+    export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+    export_info.pNext = NULL;
+    export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+    import_info.sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR;
+    import_info.pNext = NULL;
+    import_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+    import_info.handle = import_handle;
+    import_info.name = NULL;
+    dedicated_info.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+    dedicated_info.pNext = import_handle ? (void *)&import_info : (void *)&export_info;
+    dedicated_info.image = image->vk_image;
+    dedicated_info.buffer = VK_NULL_HANDLE;
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.pNext = &dedicated_info;
+    allocate_info.allocationSize = requirements.size;
+    allocate_info.memoryTypeIndex = memory_type_idx;
+
+    if ((vr = VK_CALL(vkAllocateMemory(device_vk->vk_device, &allocate_info,
+            NULL, &image->vk_memory))) != VK_SUCCESS)
+    {
+        WARN("Failed to allocate shared image memory, vr %s.\n", wined3d_debug_vkresult(vr));
+        goto fail;
+    }
+    if ((vr = VK_CALL(vkBindImageMemory(device_vk->vk_device, image->vk_image,
+            image->vk_memory, 0))) != VK_SUCCESS)
+    {
+        WARN("Failed to bind shared image memory, vr %s.\n", wined3d_debug_vkresult(vr));
+        VK_CALL(vkFreeMemory(device_vk->vk_device, image->vk_memory, NULL));
+        image->vk_memory = VK_NULL_HANDLE;
+        goto fail;
+    }
+    image->memory_type_index = memory_type_idx;
+    return TRUE;
+
+fail:
+    VK_CALL(vkDestroyImage(device_vk->vk_device, image->vk_image, NULL));
+    image->vk_image = VK_NULL_HANDLE;
+    return FALSE;
+}
+
 static struct wined3d_retired_object_vk *wined3d_context_vk_get_retired_object_vk(struct wined3d_context_vk *context_vk)
 {
     struct wined3d_retired_objects_vk *retired = &context_vk->retired;
@@ -2089,22 +2221,32 @@ VkCommandBuffer wined3d_context_vk_get_command_buffer(struct wined3d_context_vk 
     return buffer->vk_command_buffer;
 }
 
-void wined3d_context_vk_submit_command_buffer(struct wined3d_context_vk *context_vk,
+static void wined3d_context_vk_submit_command_buffer_internal(struct wined3d_context_vk *context_vk,
         unsigned int wait_semaphore_count, const VkSemaphore *wait_semaphores, const VkPipelineStageFlags *wait_stages,
-        unsigned int signal_semaphore_count, const VkSemaphore *signal_semaphores)
+        unsigned int signal_semaphore_count, const VkSemaphore *signal_semaphores,
+        const uint64_t *signal_values)
 {
     struct wined3d_device_vk *device_vk = wined3d_device_vk(context_vk->c.device);
     VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    VkTimelineSemaphoreSubmitInfo timeline_info =
+    {
+        .sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO,
+        .signalSemaphoreValueCount = signal_values ? signal_semaphore_count : 0,
+        .pSignalSemaphoreValues = signal_values,
+    };
     const struct wined3d_vk_info *vk_info = context_vk->vk_info;
     struct wined3d_query_pool_vk *pool_vk, *pool_vk_next;
     struct wined3d_command_buffer_vk *buffer;
     struct wined3d_query_vk *query_vk;
+    uint64_t *wait_values = NULL;
     VkResult vr;
 
     TRACE("context_vk %p, wait_semaphore_count %u, wait_semaphores %p, wait_stages %p,"
             "signal_semaphore_count %u, signal_semaphores %p.\n",
             context_vk, wait_semaphore_count, wait_semaphores, wait_stages,
             signal_semaphore_count, signal_semaphores);
+
+    if (signal_values) submit_info.pNext = &timeline_info;
 
     buffer = &context_vk->current_command_buffer;
     if (!buffer->vk_command_buffer && !signal_semaphore_count
@@ -2180,11 +2322,22 @@ void wined3d_context_vk_submit_command_buffer(struct wined3d_context_vk *context
     }
     submit_info.signalSemaphoreCount = signal_semaphore_count;
     submit_info.pSignalSemaphores = signal_semaphores;
+    if (signal_values && submit_info.waitSemaphoreCount)
+    {
+        if (!(wait_values = calloc(submit_info.waitSemaphoreCount, sizeof(*wait_values))))
+        {
+            ERR("Failed to allocate timeline wait values.\n");
+            return;
+        }
+        timeline_info.waitSemaphoreValueCount = submit_info.waitSemaphoreCount;
+        timeline_info.pWaitSemaphoreValues = wait_values;
+    }
 
     if ((vr = VK_CALL(vkQueueSubmit(device_vk->graphics_queue.vk_queue, 1, &submit_info,
             buffer->vk_command_buffer ? buffer->vk_fence : VK_NULL_HANDLE))) < 0)
         ERR("Failed to submit command buffer %p, vr %s.\n",
                 buffer->vk_command_buffer, wined3d_debug_vkresult(vr));
+    free(wait_values);
 
     context_vk->wait_semaphore_count = 0;
 
@@ -2207,6 +2360,23 @@ void wined3d_context_vk_submit_command_buffer(struct wined3d_context_vk *context
     }
     context_vk->retired_bo_size = 0;
     wined3d_context_vk_cleanup_resources(context_vk, VK_NULL_HANDLE);
+}
+
+void wined3d_context_vk_submit_command_buffer(struct wined3d_context_vk *context_vk,
+        unsigned int wait_semaphore_count, const VkSemaphore *wait_semaphores,
+        const VkPipelineStageFlags *wait_stages, unsigned int signal_semaphore_count,
+        const VkSemaphore *signal_semaphores)
+{
+    wined3d_context_vk_submit_command_buffer_internal(context_vk, wait_semaphore_count,
+            wait_semaphores, wait_stages, signal_semaphore_count, signal_semaphores, NULL);
+}
+
+void wined3d_context_vk_submit_command_buffer_timeline(struct wined3d_context_vk *context_vk,
+        unsigned int signal_semaphore_count, const VkSemaphore *signal_semaphores,
+        const uint64_t *signal_values)
+{
+    wined3d_context_vk_submit_command_buffer_internal(context_vk, 0, NULL, NULL,
+            signal_semaphore_count, signal_semaphores, signal_values);
 }
 
 void wined3d_context_vk_wait_command_buffer(struct wined3d_context_vk *context_vk, uint64_t id)
@@ -2241,10 +2411,11 @@ void wined3d_context_vk_wait_command_buffer(struct wined3d_context_vk *context_v
     ERR("Failed to find fence for command buffer with id 0x%s.\n", wine_dbgstr_longlong(id));
 }
 
-void wined3d_context_vk_image_barrier(struct wined3d_context_vk *context_vk,
+void wined3d_context_vk_external_image_barrier(struct wined3d_context_vk *context_vk,
         VkCommandBuffer vk_command_buffer, VkPipelineStageFlags src_stage_mask, VkPipelineStageFlags dst_stage_mask,
         VkAccessFlags src_access_mask, VkAccessFlags dst_access_mask, VkImageLayout old_layout,
-        VkImageLayout new_layout, VkImage image, const VkImageSubresourceRange *range)
+        VkImageLayout new_layout, uint32_t src_queue_family, uint32_t dst_queue_family,
+        VkImage image, const VkImageSubresourceRange *range)
 {
     const struct wined3d_vk_info *vk_info = context_vk->vk_info;
     VkImageMemoryBarrier barrier;
@@ -2257,12 +2428,24 @@ void wined3d_context_vk_image_barrier(struct wined3d_context_vk *context_vk,
     barrier.dstAccessMask = dst_access_mask;
     barrier.oldLayout = old_layout;
     barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.srcQueueFamilyIndex = src_queue_family;
+    barrier.dstQueueFamilyIndex = dst_queue_family;
     barrier.image = image;
     barrier.subresourceRange = *range;
 
     VK_CALL(vkCmdPipelineBarrier(vk_command_buffer, src_stage_mask, dst_stage_mask, 0, 0, NULL, 0, NULL, 1, &barrier));
+}
+
+void wined3d_context_vk_image_barrier(struct wined3d_context_vk *context_vk,
+        VkCommandBuffer vk_command_buffer, VkPipelineStageFlags src_stage_mask,
+        VkPipelineStageFlags dst_stage_mask, VkAccessFlags src_access_mask,
+        VkAccessFlags dst_access_mask, VkImageLayout old_layout,
+        VkImageLayout new_layout, VkImage image, const VkImageSubresourceRange *range)
+{
+    wined3d_context_vk_external_image_barrier(context_vk, vk_command_buffer,
+            src_stage_mask, dst_stage_mask, src_access_mask, dst_access_mask,
+            old_layout, new_layout, VK_QUEUE_FAMILY_IGNORED,
+            VK_QUEUE_FAMILY_IGNORED, image, range);
 }
 
 static int wined3d_render_pass_vk_compare(const void *key, const struct wine_rb_entry *entry)
@@ -4392,7 +4575,6 @@ static VkCommandPool create_command_pool(struct wined3d_device_vk *device_vk,
 HRESULT wined3d_context_vk_init(struct wined3d_context_vk *context_vk, struct wined3d_swapchain *swapchain)
 {
     const struct wined3d_vk_info *vk_info;
-    struct wined3d_adapter_vk *adapter_vk;
     struct wined3d_device_vk *device_vk;
 
     TRACE("context_vk %p, swapchain %p.\n", context_vk, swapchain);
@@ -4400,8 +4582,7 @@ HRESULT wined3d_context_vk_init(struct wined3d_context_vk *context_vk, struct wi
     memset(context_vk, 0, sizeof(*context_vk));
     wined3d_context_init(&context_vk->c, swapchain);
     device_vk = wined3d_device_vk(swapchain->device);
-    adapter_vk = wined3d_adapter_vk(device_vk->d.adapter);
-    context_vk->vk_info = vk_info = &adapter_vk->vk_info;
+    context_vk->vk_info = vk_info = &device_vk->vk_info;
 
     if (!(context_vk->vk_command_pool = create_command_pool(device_vk,
             vk_info, device_vk->graphics_queue.vk_queue_family_index)))

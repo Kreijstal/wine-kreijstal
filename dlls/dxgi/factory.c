@@ -26,11 +26,23 @@ static inline struct dxgi_factory *impl_from_IWineDXGIFactory(IWineDXGIFactory *
     return CONTAINING_RECORD(iface, struct dxgi_factory, IWineDXGIFactory_iface);
 }
 
+static inline struct dxgi_factory *impl_from_IDXGIFactoryMedia(IDXGIFactoryMedia *iface)
+{
+    return CONTAINING_RECORD(iface, struct dxgi_factory, IDXGIFactoryMedia_iface);
+}
+
 static HRESULT STDMETHODCALLTYPE dxgi_factory_QueryInterface(IWineDXGIFactory *iface, REFIID iid, void **out)
 {
     struct dxgi_factory *factory = impl_from_IWineDXGIFactory(iface);
 
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (IsEqualGUID(iid, &IID_IDXGIFactoryMedia))
+    {
+        IUnknown_AddRef(iface);
+        *out = &factory->IDXGIFactoryMedia_iface;
+        return S_OK;
+    }
 
     if (IsEqualGUID(iid, &IID_IWineDXGIFactory)
             || IsEqualGUID(iid, &IID_IDXGIFactory7)
@@ -567,6 +579,64 @@ static const struct IWineDXGIFactoryVtbl dxgi_factory_vtbl =
     dxgi_factory_UnregisterAdaptersChangedEvent,
 };
 
+static HRESULT STDMETHODCALLTYPE dxgi_factory_media_QueryInterface(IDXGIFactoryMedia *iface,
+        REFIID iid, void **out)
+{
+    struct dxgi_factory *factory = impl_from_IDXGIFactoryMedia(iface);
+
+    return IWineDXGIFactory_QueryInterface(&factory->IWineDXGIFactory_iface, iid, out);
+}
+
+static ULONG STDMETHODCALLTYPE dxgi_factory_media_AddRef(IDXGIFactoryMedia *iface)
+{
+    struct dxgi_factory *factory = impl_from_IDXGIFactoryMedia(iface);
+
+    return IWineDXGIFactory_AddRef(&factory->IWineDXGIFactory_iface);
+}
+
+static ULONG STDMETHODCALLTYPE dxgi_factory_media_Release(IDXGIFactoryMedia *iface)
+{
+    struct dxgi_factory *factory = impl_from_IDXGIFactoryMedia(iface);
+
+    return IWineDXGIFactory_Release(&factory->IWineDXGIFactory_iface);
+}
+
+static HRESULT STDMETHODCALLTYPE dxgi_factory_media_CreateSwapChainForCompositionSurfaceHandle(
+        IDXGIFactoryMedia *iface, IUnknown *device, HANDLE surface,
+        const DXGI_SWAP_CHAIN_DESC1 *desc, IDXGIOutput *restrict_to_output,
+        IDXGISwapChain1 **swapchain)
+{
+    struct dxgi_factory *factory = impl_from_IDXGIFactoryMedia(iface);
+
+    TRACE("iface %p, device %p, surface %p, desc %p, restrict_to_output %p, swapchain %p.\n",
+            iface, device, surface, desc, restrict_to_output, swapchain);
+
+    return composition_swapchain_create(&factory->IWineDXGIFactory_iface, device,
+            surface, desc, restrict_to_output, swapchain);
+}
+
+static HRESULT STDMETHODCALLTYPE dxgi_factory_media_CreateDecodeSwapChainForCompositionSurfaceHandle(
+        IDXGIFactoryMedia *iface, IUnknown *device, HANDLE surface,
+        DXGI_DECODE_SWAP_CHAIN_DESC *desc, IDXGIResource *decode_buffers,
+        IDXGIOutput *restrict_to_output, IDXGIDecodeSwapChain **swapchain)
+{
+    FIXME("iface %p, device %p, surface %p, desc %p, decode_buffers %p, "
+            "restrict_to_output %p, swapchain %p stub!\n", iface, device, surface,
+            desc, decode_buffers, restrict_to_output, swapchain);
+
+    if (swapchain) *swapchain = NULL;
+    return E_NOTIMPL;
+}
+
+static const IDXGIFactoryMediaVtbl dxgi_factory_media_vtbl =
+{
+    dxgi_factory_media_QueryInterface,
+    dxgi_factory_media_AddRef,
+    dxgi_factory_media_Release,
+    dxgi_factory_media_CreateSwapChainForCompositionSurfaceHandle,
+    dxgi_factory_media_CreateDecodeSwapChainForCompositionSurfaceHandle,
+};
+
 struct dxgi_factory *unsafe_impl_from_IDXGIFactory(IDXGIFactory *iface)
 {
     IWineDXGIFactory *wine_factory;
@@ -589,6 +659,7 @@ struct dxgi_factory *unsafe_impl_from_IDXGIFactory(IDXGIFactory *iface)
 static HRESULT dxgi_factory_init(struct dxgi_factory *factory, BOOL extended)
 {
     factory->IWineDXGIFactory_iface.lpVtbl = &dxgi_factory_vtbl;
+    factory->IDXGIFactoryMedia_iface.lpVtbl = &dxgi_factory_media_vtbl;
     factory->refcount = 1;
     wined3d_private_store_init(&factory->private_store);
 

@@ -315,6 +315,15 @@ DECL_HANDLER(d3dkmt_object_open_name);
 DECL_HANDLER(d3dkmt_mutex_acquire);
 DECL_HANDLER(d3dkmt_mutex_release);
 DECL_HANDLER(alpc_create_port);
+DECL_HANDLER(dcomp_create_shared_visual);
+DECL_HANDLER(dcomp_set_shared_visual_info);
+DECL_HANDLER(dcomp_get_shared_visual_info);
+DECL_HANDLER(dcomp_create_surface);
+DECL_HANDLER(dcomp_open_surface);
+DECL_HANDLER(dcomp_bind_surface);
+DECL_HANDLER(dcomp_update_surface);
+DECL_HANDLER(dcomp_query_surface);
+DECL_HANDLER(dcomp_subscribe_surfaces);
 
 typedef void (*req_handler)( const void *req, void *reply );
 static const req_handler req_handlers[REQ_NB_REQUESTS] =
@@ -627,6 +636,15 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_d3dkmt_mutex_acquire,
     (req_handler)req_d3dkmt_mutex_release,
     (req_handler)req_alpc_create_port,
+    (req_handler)req_dcomp_create_shared_visual,
+    (req_handler)req_dcomp_set_shared_visual_info,
+    (req_handler)req_dcomp_get_shared_visual_info,
+    (req_handler)req_dcomp_create_surface,
+    (req_handler)req_dcomp_open_surface,
+    (req_handler)req_dcomp_bind_surface,
+    (req_handler)req_dcomp_update_surface,
+    (req_handler)req_dcomp_query_surface,
+    (req_handler)req_dcomp_subscribe_surfaces,
 };
 
 C_ASSERT( sizeof(abstime_t) == 8 );
@@ -2394,3 +2412,53 @@ C_ASSERT( offsetof(struct alpc_create_port_request, max_msg_len) == 16 );
 C_ASSERT( sizeof(struct alpc_create_port_request) == 24 );
 C_ASSERT( offsetof(struct alpc_create_port_reply, handle) == 8 );
 C_ASSERT( sizeof(struct alpc_create_port_reply) == 16 );
+C_ASSERT( sizeof(struct dcomp_create_shared_visual_request) == 16 );
+C_ASSERT( offsetof(struct dcomp_create_shared_visual_reply, handle) == 8 );
+C_ASSERT( sizeof(struct dcomp_create_shared_visual_reply) == 16 );
+C_ASSERT( offsetof(struct dcomp_set_shared_visual_info_request, handle) == 12 );
+C_ASSERT( offsetof(struct dcomp_set_shared_visual_info_request, target_root) == 16 );
+C_ASSERT( sizeof(struct dcomp_set_shared_visual_info_request) == 24 );
+C_ASSERT( offsetof(struct dcomp_get_shared_visual_info_request, handle) == 12 );
+C_ASSERT( sizeof(struct dcomp_get_shared_visual_info_request) == 16 );
+C_ASSERT( offsetof(struct dcomp_get_shared_visual_info_reply, target_root) == 8 );
+C_ASSERT( sizeof(struct dcomp_get_shared_visual_info_reply) == 16 );
+C_ASSERT( offsetof(struct dcomp_create_surface_request, access) == 12 );
+C_ASSERT( offsetof(struct dcomp_create_surface_request, attributes) == 16 );
+C_ASSERT( sizeof(struct dcomp_create_surface_request) == 24 );
+C_ASSERT( offsetof(struct dcomp_create_surface_reply, handle) == 8 );
+C_ASSERT( sizeof(struct dcomp_create_surface_reply) == 16 );
+C_ASSERT( offsetof(struct dcomp_open_surface_request, handle) == 12 );
+C_ASSERT( sizeof(struct dcomp_open_surface_request) == 16 );
+C_ASSERT( offsetof(struct dcomp_open_surface_reply, handle) == 8 );
+C_ASSERT( sizeof(struct dcomp_open_surface_reply) == 16 );
+C_ASSERT( offsetof(struct dcomp_bind_surface_request, surface) == 12 );
+C_ASSERT( offsetof(struct dcomp_bind_surface_request, payload_size) == 16 );
+C_ASSERT( sizeof(struct dcomp_bind_surface_request) == 24 );
+C_ASSERT( offsetof(struct dcomp_bind_surface_reply, binding) == 8 );
+C_ASSERT( offsetof(struct dcomp_bind_surface_reply, available_event) == 12 );
+C_ASSERT( sizeof(struct dcomp_bind_surface_reply) == 16 );
+C_ASSERT( offsetof(struct dcomp_update_surface_request, binding) == 12 );
+C_ASSERT( offsetof(struct dcomp_update_surface_request, payload_size) == 16 );
+C_ASSERT( sizeof(struct dcomp_update_surface_request) == 24 );
+C_ASSERT( offsetof(struct dcomp_update_surface_reply, next_buffer) == 8 );
+C_ASSERT( sizeof(struct dcomp_update_surface_reply) == 16 );
+C_ASSERT( offsetof(struct dcomp_query_surface_request, surface) == 12 );
+C_ASSERT( sizeof(struct dcomp_query_surface_request) == 16 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, resource) == 8 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, sync_resource) == 12 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, width) == 16 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, height) == 20 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, format) == 24 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, alpha_mode) == 28 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, adapter_luid) == 32 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, buffer_count) == 40 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, front_buffer) == 44 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, generation) == 48 );
+C_ASSERT( offsetof(struct dcomp_query_surface_reply, has_front) == 52 );
+C_ASSERT( sizeof(struct dcomp_query_surface_reply) == 56 );
+C_ASSERT( offsetof(struct dcomp_subscribe_surfaces_request, event) == 12 );
+C_ASSERT( offsetof(struct dcomp_subscribe_surfaces_request, surfaces_size) == 16 );
+C_ASSERT( sizeof(struct dcomp_subscribe_surfaces_request) == 24 );
+C_ASSERT( offsetof(struct dcomp_subscribe_surfaces_reply, subscription) == 8 );
+C_ASSERT( offsetof(struct dcomp_subscribe_surfaces_reply, snapshots_size) == 12 );
+C_ASSERT( sizeof(struct dcomp_subscribe_surfaces_reply) == 16 );

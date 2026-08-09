@@ -465,6 +465,36 @@ static void test_composition_swapchain(void)
         imported = NULL;
     }
 
+    {
+        ID3D11DeviceContext *other_context = NULL;
+        ID3D11Device *other_device = create_d3d11_device();
+        IDXGIDevice *other_dxgi_device = NULL;
+
+        if (other_device)
+        {
+            ID3D11Device_GetImmediateContext(other_device, &other_context);
+            hr = ID3D11Device_QueryInterface(other_device, &IID_IDXGIDevice,
+                    (void **)&other_dxgi_device);
+            ok(hr == S_OK, "Second-device IDXGIDevice query failed, hr %#lx.\n", hr);
+            if (SUCCEEDED(hr))
+            {
+                hr = import_composition_surface(other_dxgi_device, surface, &imported,
+                        &alpha_mode, &has_front, &first_front, &first_generation);
+                ok(hr == S_OK, "Cross-device surface import failed, hr %#lx.\n", hr);
+                if (SUCCEEDED(hr))
+                {
+                    hr = read_surface_pixel(other_device, other_context, imported, &pixel);
+                    todo_wine ok(hr == S_OK && pixel == 0xff204080,
+                            "Cross-device imported pixel %#lx, hr %#lx.\n", pixel, hr);
+                    IDXGISurface_Release(imported);
+                    imported = NULL;
+                }
+            }
+            if (other_dxgi_device) IDXGIDevice_Release(other_dxgi_device);
+            if (other_context) ID3D11DeviceContext_Release(other_context);
+            ID3D11Device_Release(other_device);
+        }
+    }
     if (pDCompositionCreateDevice)
     {
         hr = pDCompositionCreateDevice(dxgi_device, &IID_IDCompositionDevice,

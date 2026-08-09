@@ -93,6 +93,30 @@ static inline struct dxgi_resource *impl_from_IDXGISurface2(IDXGISurface2 *iface
     return CONTAINING_RECORD(iface, struct dxgi_resource, IDXGISurface2_iface);
 }
 
+HRESULT dxgi_surface_create_shared_handle(IDXGISurface *iface, HANDLE *handle,
+        UINT *memory_type_index)
+{
+    struct dxgi_resource *resource = impl_from_IDXGISurface2((IDXGISurface2 *)iface);
+    struct wined3d_texture *texture;
+    HRESULT hr;
+
+    if (!handle || !memory_type_index) return E_INVALIDARG;
+    *handle = NULL;
+    texture = wined3d_texture_from_resource(resource->wined3d_resource);
+    hr = wined3d_texture_export_shared_handle(texture, handle, memory_type_index);
+    if (FAILED(hr)) WARN("Failed to export composition surface %p, hr %#lx.\n", iface, hr);
+    return hr;
+}
+
+HRESULT dxgi_surface_publish_shared(IDXGISurface *iface, HANDLE *sync_handle)
+{
+    struct dxgi_resource *resource = impl_from_IDXGISurface2((IDXGISurface2 *)iface);
+    struct wined3d_texture *texture;
+
+    texture = wined3d_texture_from_resource(resource->wined3d_resource);
+    return wined3d_texture_publish_shared(texture, sync_handle);
+}
+
 /* IUnknown methods */
 
 static HRESULT STDMETHODCALLTYPE dxgi_surface_QueryInterface(IDXGISurface2 *iface, REFIID riid,

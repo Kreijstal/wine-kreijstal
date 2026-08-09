@@ -218,7 +218,7 @@ struct gdi_dc_funcs
 };
 
 /* increment this when you change the DC function table */
-#define WINE_GDI_DRIVER_VERSION 110
+#define WINE_GDI_DRIVER_VERSION 111
 
 #define GDI_PRIORITY_NULL_DRV        0  /* null driver */
 #define GDI_PRIORITY_FONT_DRV      100  /* any font driver */
@@ -358,6 +358,7 @@ struct gdi_device_manager
 
 struct vulkan_driver_funcs;
 struct opengl_driver_funcs;
+struct wine_dcomp_scene;
 
 struct user_driver_funcs
 {
@@ -438,8 +439,11 @@ struct user_driver_funcs
     UINT    (*pOpenGLInit)(UINT,const struct opengl_funcs *,const struct opengl_driver_funcs **);
     /* thread management */
     void    (*pThreadDetach)(void);
+    /* DirectComposition immutable scene transaction */
+    BOOL    (*pDCompositionUpdate)(const struct wine_dcomp_scene *,UINT);
 };
 
 W32KAPI void __wine_set_user_driver( const struct user_driver_funcs *funcs, UINT version );
+W32KAPI BOOL __wine_dcomp_update( const struct wine_dcomp_scene *scene, UINT size );
 
 #endif /* __WINE_WINE_GDI_DRIVER_H */

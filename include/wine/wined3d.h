@@ -1588,6 +1588,7 @@ enum wined3d_memory_segment_group
 #define WINED3D_TEXTURE_CREATE_GET_DC                           0x00000008
 #define WINED3D_TEXTURE_CREATE_GENERATE_MIPMAPS                 0x00000010
 #define WINED3D_TEXTURE_CREATE_RECORD_DIRTY_REGIONS             0x00000020
+#define WINED3D_TEXTURE_CREATE_SHARED                           0x00000040
 
 #define WINED3D_STANDARD_MULTISAMPLE_PATTERN                    0xffffffff
 
@@ -2951,6 +2952,12 @@ HRESULT __cdecl wined3d_texture_create(struct wined3d_device *device, const stru
 struct wined3d_texture * __cdecl wined3d_texture_from_resource(struct wined3d_resource *resource);
 ULONG __cdecl wined3d_texture_decref(struct wined3d_texture *texture);
 HRESULT __cdecl wined3d_texture_get_dc(struct wined3d_texture *texture, unsigned int sub_resource_idx, HDC *dc);
+HRESULT __cdecl wined3d_texture_export_shared_handle(struct wined3d_texture *texture, HANDLE *handle,
+        unsigned int *memory_type_index);
+HRESULT __cdecl wined3d_texture_enable_sharing(struct wined3d_texture *texture);
+HRESULT __cdecl wined3d_texture_import_shared_handle(struct wined3d_texture *texture, HANDLE handle);
+HRESULT __cdecl wined3d_texture_publish_shared(struct wined3d_texture *texture,
+        HANDLE *sync_handle);
 unsigned int __cdecl wined3d_texture_get_level_count(const struct wined3d_texture *texture);
 unsigned int __cdecl wined3d_texture_get_lod(const struct wined3d_texture *texture);
 unsigned int __cdecl wined3d_texture_set_lod(struct wined3d_texture *texture, unsigned int lod);

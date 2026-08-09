@@ -396,6 +396,27 @@ struct luid_attr
     unsigned int attrs;
 };
 
+/* Variable payload used by DirectComposition producer registration/update.
+ * Keeping device identity in the payload leaves the fixed server request ABI
+ * below the 64-byte request ceiling. */
+struct dcomp_surface_info
+{
+    unsigned int width;
+    unsigned int height;
+    unsigned int format;
+    unsigned int alpha_mode;
+    struct luid adapter_luid;
+    unsigned int device_uuid0;
+    unsigned int device_uuid1;
+    unsigned int device_uuid2;
+    unsigned int device_uuid3;
+    unsigned int memory_type_index;
+    unsigned int buffer_count;
+    unsigned int front_buffer;
+    unsigned int resize;
+    obj_handle_t sync_resource;
+};
+
 struct acl
 {
     unsigned char  revision;
@@ -4332,4 +4353,103 @@ enum inproc_sync_type
     VARARG(obj_attr,object_attributes); /* object attributes */
 @REPLY
     obj_handle_t        handle;         /* handle to the ALPC port */
+@END
+
+
+/* Create an opaque DirectComposition surface object. Keep new requests at the
+ * end so that existing protocol request numbers remain stable. */
+@REQ(dcomp_create_surface)
+    unsigned int access;        /* requested composition object access */
+    unsigned int attributes;    /* handle attributes */
+@REPLY
+    obj_handle_t handle;        /* created composition surface handle */
+@END
+
+/* Validate and retain a DirectComposition surface handle for a composition
+ * device. Keep new requests at the end so existing request numbers remain
+ * stable. */
+@REQ(dcomp_open_surface)
+    obj_handle_t handle;         /* composition surface handle to import */
+@REPLY
+    obj_handle_t handle;         /* query-only retained surface handle */
+@END
+
+/* Bind a headless DXGI flip swapchain to a composition surface.  The returned
+ * binding handle owns the registration; closing its last handle atomically
+ * detaches the producer from the surface. */
+@REQ(dcomp_bind_surface)
+    obj_handle_t surface;        /* composition surface with modify access */
+    data_size_t payload_size;    /* info followed by shared resource handles */
+    VARARG(payload,bytes,payload_size);
+@REPLY
+    obj_handle_t binding;        /* lifetime handle for the registration */
+    obj_handle_t available_event; /* signaled when an unleased back buffer exists */
+@END
+
+/* Publish a new front buffer, or atomically replace the registered buffer set
+ * after ResizeBuffers.  Buffer storage remains owned by the DXGI swapchain. */
+@REQ(dcomp_update_surface)
+    obj_handle_t binding;        /* composition producer binding */
+    data_size_t payload_size;    /* info and optional replacement resources */
+    VARARG(payload,bytes,payload_size);
+@REPLY
+    unsigned int next_buffer;    /* unleased back buffer selected for producer */
+@END
+
+/* Snapshot the currently published buffer. The returned handle references the
+ * actual DxgkSharedResource allocation and remains valid across later presents. */
+@REQ(dcomp_query_surface)
+    obj_handle_t surface;        /* imported composition surface */
+@REPLY
+    obj_handle_t resource;       /* duplicated current GPU resource handle */
+    obj_handle_t sync_resource;  /* duplicated publication semaphore handle */
+    unsigned int width;
+    unsigned int height;
+    unsigned int format;
+    unsigned int alpha_mode;
+    struct luid adapter_luid;
+    unsigned int buffer_count;
+    unsigned int front_buffer;
+    unsigned int generation;
+    unsigned int has_front;
+@END
+
+/* A retained composition consumer registers every surface dependency in one
+ * server transaction.  The snapshot and subscription are created atomically,
+ * so a Present racing Commit either appears in the snapshot or signals event. */
+struct dcomp_subscription_input
+{
+    obj_handle_t surface;
+    unsigned int generation;
+};
+
+struct dcomp_surface_snapshot
+{
+    obj_handle_t resource;
+    obj_handle_t sync_resource;
+    obj_handle_t lease;
+    unsigned int width;
+    unsigned int height;
+    unsigned int format;
+    unsigned int alpha_mode;
+    struct luid adapter_luid;
+    unsigned int device_uuid0;
+    unsigned int device_uuid1;
+    unsigned int device_uuid2;
+    unsigned int device_uuid3;
+    unsigned int memory_type_index;
+    unsigned int buffer_count;
+    unsigned int front_buffer;
+    unsigned int generation;
+    unsigned int has_front;
+};
+
+@REQ(dcomp_subscribe_surfaces)
+    obj_handle_t event;          /* auto/manual-reset consumer wake event */
+    data_size_t surfaces_size;   /* byte size of dcomp_subscription_input array */
+    VARARG(surfaces,bytes,surfaces_size);
+@REPLY
+    obj_handle_t subscription;   /* owns all dependency registrations */
+    data_size_t snapshots_size;  /* byte size of dcomp_surface_snapshot array */
+    VARARG(snapshots,bytes,snapshots_size);
 @END

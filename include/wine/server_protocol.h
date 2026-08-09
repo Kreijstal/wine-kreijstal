@@ -380,6 +380,27 @@ struct luid_attr
     unsigned int attrs;
 };
 
+/* Variable payload used by DirectComposition producer registration/update.
+ * Keeping device identity in the payload leaves the fixed server request ABI
+ * below the 64-byte request ceiling. */
+struct dcomp_surface_info
+{
+    unsigned int width;
+    unsigned int height;
+    unsigned int format;
+    unsigned int alpha_mode;
+    struct luid adapter_luid;
+    unsigned int device_uuid0;
+    unsigned int device_uuid1;
+    unsigned int device_uuid2;
+    unsigned int device_uuid3;
+    unsigned int memory_type_index;
+    unsigned int buffer_count;
+    unsigned int front_buffer;
+    unsigned int resize;
+    obj_handle_t sync_resource;
+};
+
 struct acl
 {
     unsigned char  revision;
@@ -6237,6 +6258,142 @@ struct alpc_create_port_reply
 };
 
 
+/* Create an opaque DirectComposition surface object. Keep new requests at the
+ * end so that existing protocol request numbers remain stable. */
+struct dcomp_create_surface_request
+{
+    struct request_header __header;
+    unsigned int access;
+    unsigned int attributes;
+    char __pad_20[4];
+};
+struct dcomp_create_surface_reply
+{
+    struct reply_header __header;
+    obj_handle_t handle;
+    char __pad_12[4];
+};
+
+/* Validate and retain a DirectComposition surface handle for a composition
+ * device. Keep new requests at the end so existing request numbers remain
+ * stable. */
+struct dcomp_open_surface_request
+{
+    struct request_header __header;
+    obj_handle_t handle;
+};
+struct dcomp_open_surface_reply
+{
+    struct reply_header __header;
+    obj_handle_t handle;
+    char __pad_12[4];
+};
+
+/* Bind a headless DXGI flip swapchain to a composition surface.  The returned
+ * binding handle owns the registration; closing its last handle atomically
+ * detaches the producer from the surface. */
+struct dcomp_bind_surface_request
+{
+    struct request_header __header;
+    obj_handle_t surface;
+    data_size_t payload_size;
+    /* VARARG(payload,bytes,payload_size); */
+    char __pad_20[4];
+};
+struct dcomp_bind_surface_reply
+{
+    struct reply_header __header;
+    obj_handle_t binding;
+    obj_handle_t available_event;
+};
+
+/* Publish a new front buffer, or atomically replace the registered buffer set
+ * after ResizeBuffers.  Buffer storage remains owned by the DXGI swapchain. */
+struct dcomp_update_surface_request
+{
+    struct request_header __header;
+    obj_handle_t binding;
+    data_size_t payload_size;
+    /* VARARG(payload,bytes,payload_size); */
+    char __pad_20[4];
+};
+struct dcomp_update_surface_reply
+{
+    struct reply_header __header;
+    unsigned int next_buffer;
+    char __pad_12[4];
+};
+
+/* Snapshot the currently published buffer. The returned handle references the
+ * actual DxgkSharedResource allocation and remains valid across later presents. */
+struct dcomp_query_surface_request
+{
+    struct request_header __header;
+    obj_handle_t surface;
+};
+struct dcomp_query_surface_reply
+{
+    struct reply_header __header;
+    obj_handle_t resource;
+    obj_handle_t sync_resource;
+    unsigned int width;
+    unsigned int height;
+    unsigned int format;
+    unsigned int alpha_mode;
+    struct luid adapter_luid;
+    unsigned int buffer_count;
+    unsigned int front_buffer;
+    unsigned int generation;
+    unsigned int has_front;
+};
+
+/* A retained composition consumer registers every surface dependency in one
+ * server transaction.  The snapshot and subscription are created atomically,
+ * so a Present racing Commit either appears in the snapshot or signals event. */
+struct dcomp_subscription_input
+{
+    obj_handle_t surface;
+    unsigned int generation;
+};
+
+struct dcomp_surface_snapshot
+{
+    obj_handle_t resource;
+    obj_handle_t sync_resource;
+    obj_handle_t lease;
+    unsigned int width;
+    unsigned int height;
+    unsigned int format;
+    unsigned int alpha_mode;
+    struct luid adapter_luid;
+    unsigned int device_uuid0;
+    unsigned int device_uuid1;
+    unsigned int device_uuid2;
+    unsigned int device_uuid3;
+    unsigned int memory_type_index;
+    unsigned int buffer_count;
+    unsigned int front_buffer;
+    unsigned int generation;
+    unsigned int has_front;
+};
+
+struct dcomp_subscribe_surfaces_request
+{
+    struct request_header __header;
+    obj_handle_t event;
+    data_size_t surfaces_size;
+    /* VARARG(surfaces,bytes,surfaces_size); */
+    char __pad_20[4];
+};
+struct dcomp_subscribe_surfaces_reply
+{
+    struct reply_header __header;
+    obj_handle_t subscription;
+    data_size_t snapshots_size;
+    /* VARARG(snapshots,bytes,snapshots_size); */
+};
+
+
 enum request
 {
     REQ_new_process,
@@ -6547,6 +6704,12 @@ enum request
     REQ_d3dkmt_mutex_acquire,
     REQ_d3dkmt_mutex_release,
     REQ_alpc_create_port,
+    REQ_dcomp_create_surface,
+    REQ_dcomp_open_surface,
+    REQ_dcomp_bind_surface,
+    REQ_dcomp_update_surface,
+    REQ_dcomp_query_surface,
+    REQ_dcomp_subscribe_surfaces,
     REQ_NB_REQUESTS
 };
 
@@ -6862,6 +7025,12 @@ union generic_request
     struct d3dkmt_mutex_acquire_request d3dkmt_mutex_acquire_request;
     struct d3dkmt_mutex_release_request d3dkmt_mutex_release_request;
     struct alpc_create_port_request alpc_create_port_request;
+    struct dcomp_create_surface_request dcomp_create_surface_request;
+    struct dcomp_open_surface_request dcomp_open_surface_request;
+    struct dcomp_bind_surface_request dcomp_bind_surface_request;
+    struct dcomp_update_surface_request dcomp_update_surface_request;
+    struct dcomp_query_surface_request dcomp_query_surface_request;
+    struct dcomp_subscribe_surfaces_request dcomp_subscribe_surfaces_request;
 };
 union generic_reply
 {
@@ -7175,8 +7344,14 @@ union generic_reply
     struct d3dkmt_mutex_acquire_reply d3dkmt_mutex_acquire_reply;
     struct d3dkmt_mutex_release_reply d3dkmt_mutex_release_reply;
     struct alpc_create_port_reply alpc_create_port_reply;
+    struct dcomp_create_surface_reply dcomp_create_surface_reply;
+    struct dcomp_open_surface_reply dcomp_open_surface_reply;
+    struct dcomp_bind_surface_reply dcomp_bind_surface_reply;
+    struct dcomp_update_surface_reply dcomp_update_surface_reply;
+    struct dcomp_query_surface_reply dcomp_query_surface_reply;
+    struct dcomp_subscribe_surfaces_reply dcomp_subscribe_surfaces_reply;
 };
 
-#define SERVER_PROTOCOL_VERSION 957
+#define SERVER_PROTOCOL_VERSION 967
 
 #endif /* __WINE_WINE_SERVER_PROTOCOL_H */

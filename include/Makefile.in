@@ -1118,6 +1118,7 @@ SOURCES = \
 	wine/condrv.h \
 	wine/dcetypes.idl \
 	wine/debug.h \
+	wine/dcomp_driver.h \
 	wine/dplaysp.h \
 	wine/epm.idl \
 	wine/exception.h \

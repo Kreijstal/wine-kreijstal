@@ -1215,6 +1215,7 @@ enum
     NtUserCallTwoParam_SetIMECompositionRect,
     NtUserCallTwoParam_AdjustWindowRect,
     NtUserCallTwoParam_GetVirtualScreenRect,
+    NtUserCallTwoParam_DCompositionUpdate,
     /* temporary exports */
     NtUserAllocWinProc,
 };

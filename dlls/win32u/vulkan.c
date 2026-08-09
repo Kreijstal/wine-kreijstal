@@ -26,6 +26,7 @@
 
 #include <dlfcn.h>
 #include <pthread.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "ntstatus.h"
@@ -868,6 +869,7 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
     VkImportMemoryHostPointerInfoEXT host_pointer_info, *pointer_info = NULL;
     VkExportMemoryWin32HandleInfoKHR export_win32 = {.dwAccess = GENERIC_ALL};
     VkImportMemoryWin32HandleInfoKHR *import_win32 = NULL;
+    VkMemoryDedicatedAllocateInfo *dedicated_info = NULL;
     VkDeviceMemory host_device_memory = VK_NULL_HANDLE;
     VkExportMemoryAllocateInfo *export_info = NULL;
     struct device_memory *memory;
@@ -904,7 +906,9 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
             *next = (*next)->pNext; next = &prev;
             break;
         case VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO: break;
-        case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO: break;
+        case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO:
+            dedicated_info = (VkMemoryDedicatedAllocateInfo *)*next;
+            break;
         case VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_TENSOR_ARM: break;
         case VK_STRUCTURE_TYPE_MEMORY_OPAQUE_CAPTURE_ADDRESS_ALLOCATE_INFO: break;
         case VK_STRUCTURE_TYPE_MEMORY_PRIORITY_ALLOCATE_INFO_EXT: break;
@@ -974,8 +978,20 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
         fd_info.handleType = get_host_external_memory_type();
         fd_info.pNext = alloc_info->pNext;
         alloc_info->pNext = &fd_info;
+        if (TRACE_ON(vulkan))
+        {
+            struct stat st;
+            if (!fstat( fd_info.fd, &st )) TRACE( "Importing shared memory fd %d dev %s ino %s size %s type %u allocation %s\n",
+                    fd_info.fd, wine_dbgstr_longlong(st.st_dev), wine_dbgstr_longlong(st.st_ino),
+                    wine_dbgstr_longlong(st.st_size), alloc_info->memoryTypeIndex,
+                    wine_dbgstr_longlong(alloc_info->allocationSize) );
+        }
     }
 
+    TRACE( "Host allocate type %u size %s dedicated image %s import %u export %u external %#x\n",
+            alloc_info->memoryTypeIndex, wine_dbgstr_longlong(alloc_info->allocationSize),
+            wine_dbgstr_longlong(dedicated_info ? dedicated_info->image : 0),
+            !!import_win32, !!export_info, export_info ? export_info->handleTypes : 0 );
     if ((res = device->p_vkAllocateMemory( device->host.device, alloc_info, NULL, &host_device_memory ))) goto failed;
 
     if (export_info)
@@ -993,6 +1009,15 @@ static VkResult win32u_vkAllocateMemory( VkDevice client_device, const VkMemoryA
             default:
                 FIXME( "Unsupported handle type %#x\n", get_fd_info.handleType );
                 break;
+            }
+
+            if (TRACE_ON(vulkan) && fd >= 0)
+            {
+                struct stat st;
+                if (!fstat( fd, &st )) TRACE( "Exported shared memory fd %d dev %s ino %s size %s type %u allocation %s\n",
+                        fd, wine_dbgstr_longlong(st.st_dev), wine_dbgstr_longlong(st.st_ino),
+                        wine_dbgstr_longlong(st.st_size), alloc_info->memoryTypeIndex,
+                        wine_dbgstr_longlong(alloc_info->allocationSize) );
             }
 
             memory->local = d3dkmt_create_resource( fd, nt_shared ? NULL : &memory->global );
@@ -1089,23 +1114,48 @@ static VkResult win32u_vkGetMemoryWin32HandleKHR( VkDevice client_device, const 
     }
 }
 
-static BOOL is_d3dkmt_global( D3DKMT_HANDLE handle )
-{
-    return (handle & 0xc0000000) && (handle & 0x3f) == 2;
-}
-
 static VkResult win32u_vkGetMemoryWin32HandlePropertiesKHR( VkDevice client_device, VkExternalMemoryHandleTypeFlagBits handle_type, HANDLE handle,
                                                             VkMemoryWin32HandlePropertiesKHR *handle_properties )
 {
-    static const UINT d3dkmt_type_bits = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT | VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT;
     struct vulkan_device *device = vulkan_device_from_handle( client_device );
+    VkMemoryFdPropertiesKHR fd_properties = {.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR};
+    D3DKMT_HANDLE local = 0, mutex = 0, sync = 0;
+    VkResult result;
+    int fd;
 
     TRACE( "device %p, handle_type %#x, handle %p, handle_properties %p\n", device, handle_type, handle, handle_properties );
 
-    if (is_d3dkmt_global( HandleToULong( handle ) )) handle_properties->memoryTypeBits = d3dkmt_type_bits;
-    else handle_properties->memoryTypeBits = EXTERNAL_MEMORY_WIN32_BITS & ~d3dkmt_type_bits;
+    switch (handle_type)
+    {
+    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT:
+    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT:
+        local = d3dkmt_open_resource( HandleToULong( handle ), NULL, &mutex, &sync );
+        break;
+    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT:
+    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT:
+    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_HEAP_BIT:
+    case VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT:
+        local = d3dkmt_open_resource( 0, handle, &mutex, &sync );
+        break;
+    default:
+        return VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    }
 
-    return VK_SUCCESS;
+    if (!local || (fd = d3dkmt_object_get_fd( local )) < 0)
+        result = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+    else
+    {
+        result = device->p_vkGetMemoryFdPropertiesKHR( device->host.device,
+                get_host_external_memory_type(), fd, &fd_properties );
+        close( fd );
+        if (result == VK_SUCCESS)
+            handle_properties->memoryTypeBits = fd_properties.memoryTypeBits;
+    }
+
+    if (local) d3dkmt_destroy_resource( local );
+    if (mutex) d3dkmt_destroy_mutex( mutex );
+    if (sync) d3dkmt_destroy_sync( sync );
+    return result;
 }
 
 static VkResult win32u_vkMapMemory2KHR( VkDevice client_device, const VkMemoryMapInfoKHR *map_info, void **data )
@@ -1388,7 +1438,14 @@ static VkResult win32u_vkCreateImage( VkDevice client_device, const VkImageCreat
         ((VkImageCreateInfo *)create_info)->pNext = &host_external_info; /* cast away const, it has been copied in the thunks */
     }
 
-    return device->p_vkCreateImage( device->host.device, create_info, NULL, image );
+    {
+        VkResult result = device->p_vkCreateImage( device->host.device, create_info, NULL, image );
+        TRACE( "Host image create result %d image %s flags %#x format %u usage %#x external %#x\n", result,
+                wine_dbgstr_longlong(result == VK_SUCCESS ? *image : 0), create_info->flags,
+                create_info->format, create_info->usage,
+                external_info ? external_info->handleTypes : 0 );
+        return result;
+    }
 }
 
 static void win32u_vkGetDeviceImageMemoryRequirements( VkDevice client_device, const VkDeviceImageMemoryRequirements *image_requirements,

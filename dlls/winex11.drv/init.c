@@ -671,6 +671,7 @@ static const struct user_driver_funcs x11drv_funcs =
     .pVulkanInit = X11DRV_VulkanInit,
     .pOpenGLInit = X11DRV_OpenGLInit,
     .pThreadDetach = X11DRV_ThreadDetach,
+    .pDCompositionUpdate = X11DRV_DCompositionUpdate,
 };
 
 

@@ -521,7 +521,9 @@ static void test_AccessibilitySettings(void)
     HIGHCONTRASTW high_contrast = {0};
     IAccessibilitySettings *settings;
     IActivationFactory *factory;
-    IInspectable *inspectable;
+    IInspectable *inspectable, *resolved;
+    IWeakReferenceSource *weak_source;
+    IWeakReference *weak_reference;
     struct accessibility_changed_handler handler = {{&accessibility_changed_handler_vtbl}, 1};
     EventRegistrationToken token, token2, unknown = {.value = 0x12345678};
     TrustLevel trust_level;
@@ -563,6 +565,19 @@ static void test_AccessibilitySettings(void)
     check_interface( inspectable, &IID_IInspectable, TRUE );
     check_interface( inspectable, &IID_IAgileObject, TRUE );
     check_interface( inspectable, &IID_IAccessibilitySettings, TRUE );
+    check_interface( inspectable, &IID_IWeakReferenceSource, TRUE );
+
+    hr = IInspectable_QueryInterface( inspectable, &IID_IWeakReferenceSource,
+                                      (void **)&weak_source );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    hr = IWeakReferenceSource_GetWeakReference( weak_source, &weak_reference );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    IWeakReferenceSource_Release( weak_source );
+
+    resolved = NULL;
+    hr = IWeakReference_Resolve( weak_reference, &IID_IAccessibilitySettings, &resolved );
+    ok( hr == S_OK && resolved, "Got unexpected hr %#lx, resolved %p.\n", hr, resolved );
+    if (resolved) IInspectable_Release( resolved );
 
     iid_count = 0xdeadbeef;
     iids = (void *)0xdeadbeef;
@@ -622,6 +637,12 @@ static void test_AccessibilitySettings(void)
     IAccessibilitySettings_Release( settings );
     IInspectable_Release( inspectable );
     ok( handler.ref == 1, "Destroying settings left handler refcount %ld.\n", handler.ref );
+
+    resolved = (IInspectable *)0xdeadbeef;
+    hr = IWeakReference_Resolve( weak_reference, &IID_IAccessibilitySettings, &resolved );
+    ok( hr == S_OK && !resolved, "Got unexpected hr %#lx, resolved %p.\n", hr, resolved );
+    IWeakReference_Release( weak_reference );
+
     ref = IActivationFactory_Release( factory );
     ok( ref == 1, "got ref %ld.\n", ref );
 }

@@ -18,6 +18,7 @@
  */
 
 #include "private.h"
+#include "weakref.h"
 #include "wine/debug.h"
 #include "wine/list.h"
 
@@ -26,7 +27,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(ui);
 struct accessibilitysettings
 {
     IAccessibilitySettings IAccessibilitySettings_iface;
-    LONG ref;
+    struct weak_reference_source weak_reference_source;
     CRITICAL_SECTION handlers_cs;
     struct list high_contrast_changed_handlers;
 };
@@ -53,6 +54,7 @@ static HRESULT WINAPI accessibilitysettings_QueryInterface(IAccessibilitySetting
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
 
     if (!out) return E_POINTER;
+    *out = NULL;
 
     if (IsEqualGUID(iid, &IID_IUnknown)
         || IsEqualGUID(iid, &IID_IInspectable)
@@ -60,11 +62,16 @@ static HRESULT WINAPI accessibilitysettings_QueryInterface(IAccessibilitySetting
         || IsEqualGUID(iid, &IID_IAccessibilitySettings))
     {
         *out = &impl->IAccessibilitySettings_iface;
-        IAccessibilitySettings_AddRef(&impl->IAccessibilitySettings_iface);
+    }
+    else if (IsEqualGUID(iid, &IID_IWeakReferenceSource))
+        *out = &impl->weak_reference_source.IWeakReferenceSource_iface;
+
+    if (*out)
+    {
+        IUnknown_AddRef((IUnknown *)*out);
         return S_OK;
     }
 
-    *out = NULL;
     FIXME("%s not implemented, returning E_NOINTERFACE.\n", debugstr_guid(iid));
     return E_NOINTERFACE;
 }
@@ -72,7 +79,7 @@ static HRESULT WINAPI accessibilitysettings_QueryInterface(IAccessibilitySetting
 static ULONG WINAPI accessibilitysettings_AddRef(IAccessibilitySettings *iface)
 {
     struct accessibilitysettings *impl = impl_from_IAccessibilitySettings(iface);
-    ULONG ref = InterlockedIncrement(&impl->ref);
+    ULONG ref = weak_reference_strong_add_ref(&impl->weak_reference_source);
     TRACE("iface %p, ref %lu.\n", iface, ref);
     return ref;
 }
@@ -82,7 +89,7 @@ static ULONG WINAPI accessibilitysettings_Release(IAccessibilitySettings *iface)
     struct accessibilitysettings *impl = impl_from_IAccessibilitySettings(iface);
     struct high_contrast_changed_handler *handler, *next;
     struct list handlers = LIST_INIT(handlers);
-    ULONG ref = InterlockedDecrement(&impl->ref);
+    ULONG ref = weak_reference_strong_release(&impl->weak_reference_source);
 
     TRACE("iface %p, ref %lu.\n", iface, ref);
 
@@ -304,6 +311,7 @@ static HRESULT WINAPI factory_GetTrustLevel(IActivationFactory *iface, TrustLeve
 static HRESULT WINAPI factory_ActivateInstance(IActivationFactory *iface, IInspectable **instance)
 {
     struct accessibilitysettings *impl;
+    HRESULT hr;
 
     TRACE("iface %p, instance %p.\n", iface, instance);
     if (!instance) return E_POINTER;
@@ -316,9 +324,16 @@ static HRESULT WINAPI factory_ActivateInstance(IActivationFactory *iface, IInspe
     }
 
     impl->IAccessibilitySettings_iface.lpVtbl = &accessibilitysettings_vtbl;
-    impl->ref = 1;
     InitializeCriticalSection(&impl->handlers_cs);
     list_init(&impl->high_contrast_changed_handlers);
+
+    if (FAILED(hr = weak_reference_source_init(&impl->weak_reference_source,
+            (IUnknown *)&impl->IAccessibilitySettings_iface)))
+    {
+        DeleteCriticalSection(&impl->handlers_cs);
+        free(impl);
+        return hr;
+    }
 
     *instance = (IInspectable *)&impl->IAccessibilitySettings_iface;
     return S_OK;

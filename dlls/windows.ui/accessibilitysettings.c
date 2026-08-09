@@ -19,6 +19,7 @@
 
 #include "private.h"
 #include "wine/debug.h"
+#include "wine/list.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ui);
 
@@ -26,7 +27,18 @@ struct accessibilitysettings
 {
     IAccessibilitySettings IAccessibilitySettings_iface;
     LONG ref;
+    CRITICAL_SECTION handlers_cs;
+    struct list high_contrast_changed_handlers;
 };
+
+struct high_contrast_changed_handler
+{
+    struct list entry;
+    EventRegistrationToken token;
+    ITypedEventHandler_AccessibilitySettings_IInspectable *handler;
+};
+
+static LONG64 next_high_contrast_changed_token;
 
 static inline struct accessibilitysettings *impl_from_IAccessibilitySettings(IAccessibilitySettings *iface)
 {
@@ -39,6 +51,8 @@ static HRESULT WINAPI accessibilitysettings_QueryInterface(IAccessibilitySetting
     struct accessibilitysettings *impl = impl_from_IAccessibilitySettings(iface);
 
     TRACE("iface %p, iid %s, out %p.\n", iface, debugstr_guid(iid), out);
+
+    if (!out) return E_POINTER;
 
     if (IsEqualGUID(iid, &IID_IUnknown)
         || IsEqualGUID(iid, &IID_IInspectable)
@@ -66,34 +80,64 @@ static ULONG WINAPI accessibilitysettings_AddRef(IAccessibilitySettings *iface)
 static ULONG WINAPI accessibilitysettings_Release(IAccessibilitySettings *iface)
 {
     struct accessibilitysettings *impl = impl_from_IAccessibilitySettings(iface);
+    struct high_contrast_changed_handler *handler, *next;
+    struct list handlers = LIST_INIT(handlers);
     ULONG ref = InterlockedDecrement(&impl->ref);
 
     TRACE("iface %p, ref %lu.\n", iface, ref);
 
     if (!ref)
+    {
+        EnterCriticalSection(&impl->handlers_cs);
+        list_move_tail(&handlers, &impl->high_contrast_changed_handlers);
+        LeaveCriticalSection(&impl->handlers_cs);
+
+        LIST_FOR_EACH_ENTRY_SAFE(handler, next, &handlers,
+                struct high_contrast_changed_handler, entry)
+        {
+            list_remove(&handler->entry);
+            ITypedEventHandler_AccessibilitySettings_IInspectable_Release(handler->handler);
+            free(handler);
+        }
+        DeleteCriticalSection(&impl->handlers_cs);
         free(impl);
+    }
     return ref;
 }
 
 static HRESULT WINAPI accessibilitysettings_GetIids(IAccessibilitySettings *iface, ULONG *iid_count,
                                                     IID **iids)
 {
-    FIXME("iface %p, iid_count %p, iids %p stub!\n", iface, iid_count, iids);
-    return E_NOTIMPL;
+    IID *values;
+
+    TRACE("iface %p, iid_count %p, iids %p.\n", iface, iid_count, iids);
+    if (!iid_count || !iids) return E_POINTER;
+    *iid_count = 0;
+    *iids = NULL;
+    if (!(values = CoTaskMemAlloc(sizeof(*values)))) return E_OUTOFMEMORY;
+    values[0] = IID_IAccessibilitySettings;
+    *iid_count = 1;
+    *iids = values;
+    return S_OK;
 }
 
 static HRESULT WINAPI accessibilitysettings_GetRuntimeClassName(IAccessibilitySettings *iface,
                                                                 HSTRING *class_name)
 {
-    FIXME("iface %p, class_name %p stub!\n", iface, class_name);
-    return E_NOTIMPL;
+    TRACE("iface %p, class_name %p.\n", iface, class_name);
+    if (!class_name) return E_POINTER;
+    return WindowsCreateString(RuntimeClass_Windows_UI_ViewManagement_AccessibilitySettings,
+            ARRAY_SIZE(RuntimeClass_Windows_UI_ViewManagement_AccessibilitySettings) - 1,
+            class_name);
 }
 
 static HRESULT WINAPI accessibilitysettings_GetTrustLevel(IAccessibilitySettings *iface,
                                                           TrustLevel *trust_level)
 {
-    FIXME("iface %p, trust_level %p stub!\n", iface, trust_level);
-    return E_NOTIMPL;
+    TRACE("iface %p, trust_level %p.\n", iface, trust_level);
+    if (!trust_level) return E_POINTER;
+    *trust_level = BaseTrust;
+    return S_OK;
 }
 
 static HRESULT WINAPI accessibilitysettings_get_HighContrast(IAccessibilitySettings *iface,
@@ -102,6 +146,8 @@ static HRESULT WINAPI accessibilitysettings_get_HighContrast(IAccessibilitySetti
     HIGHCONTRASTW high_contrast = {.cbSize = sizeof(high_contrast)};
 
     TRACE("iface %p, value %p.\n", iface, value);
+
+    if (!value) return E_POINTER;
 
     if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(high_contrast), &high_contrast, 0))
         return E_FAIL;
@@ -113,23 +159,65 @@ static HRESULT WINAPI accessibilitysettings_get_HighContrast(IAccessibilitySetti
 static HRESULT WINAPI accessibilitysettings_get_HighContrastScheme(IAccessibilitySettings *iface,
                                                                    HSTRING *value)
 {
-    FIXME("iface %p, value %p stub!\n", iface, value);
-    return E_NOTIMPL;
+    HIGHCONTRASTW high_contrast = {.cbSize = sizeof(high_contrast)};
+    const WCHAR *scheme;
+
+    TRACE("iface %p, value %p.\n", iface, value);
+    if (!value) return E_POINTER;
+    *value = NULL;
+    if (!SystemParametersInfoW(SPI_GETHIGHCONTRAST, sizeof(high_contrast), &high_contrast, 0))
+        return E_FAIL;
+    scheme = high_contrast.lpszDefaultScheme ? high_contrast.lpszDefaultScheme : L"";
+    return WindowsCreateString(scheme, wcslen(scheme), value);
 }
 
 static HRESULT WINAPI accessibilitysettings_add_HighContrastChanged(IAccessibilitySettings *iface,
                                                                     ITypedEventHandler_AccessibilitySettings_IInspectable *handler,
                                                                     EventRegistrationToken *cookie)
 {
-    FIXME("iface %p, handler %p, cookie %p stub!\n", iface, handler, cookie);
-    return E_NOTIMPL;
+    struct accessibilitysettings *impl = impl_from_IAccessibilitySettings(iface);
+    struct high_contrast_changed_handler *entry;
+
+    TRACE("iface %p, handler %p, cookie %p.\n", iface, handler, cookie);
+    if (!handler) return E_INVALIDARG;
+    if (!cookie) return E_POINTER;
+    cookie->value = 0;
+    if (!(entry = calloc(1, sizeof(*entry)))) return E_OUTOFMEMORY;
+    ITypedEventHandler_AccessibilitySettings_IInspectable_AddRef(handler);
+    entry->handler = handler;
+    entry->token.value = InterlockedIncrement64(&next_high_contrast_changed_token);
+
+    EnterCriticalSection(&impl->handlers_cs);
+    list_add_tail(&impl->high_contrast_changed_handlers, &entry->entry);
+    LeaveCriticalSection(&impl->handlers_cs);
+    *cookie = entry->token;
+    return S_OK;
 }
 
 static HRESULT WINAPI accessibilitysettings_remove_HighContrastChanged(IAccessibilitySettings *iface,
                                                                        EventRegistrationToken cookie)
 {
-    FIXME("iface %p, cookie %I64x stub!\n", iface, cookie.value);
-    return E_NOTIMPL;
+    struct accessibilitysettings *impl = impl_from_IAccessibilitySettings(iface);
+    struct high_contrast_changed_handler *entry;
+    BOOL found = FALSE;
+
+    TRACE("iface %p, cookie %I64x.\n", iface, cookie.value);
+    EnterCriticalSection(&impl->handlers_cs);
+    LIST_FOR_EACH_ENTRY(entry, &impl->high_contrast_changed_handlers,
+            struct high_contrast_changed_handler, entry)
+    {
+        if (entry->token.value != cookie.value) continue;
+        list_remove(&entry->entry);
+        found = TRUE;
+        break;
+    }
+    LeaveCriticalSection(&impl->handlers_cs);
+    if (found)
+    {
+        ITypedEventHandler_AccessibilitySettings_IInspectable_Release(entry->handler);
+        free(entry);
+    }
+    return S_OK;
 }
 
 static const struct IAccessibilitySettingsVtbl accessibilitysettings_vtbl =
@@ -218,6 +306,8 @@ static HRESULT WINAPI factory_ActivateInstance(IActivationFactory *iface, IInspe
     struct accessibilitysettings *impl;
 
     TRACE("iface %p, instance %p.\n", iface, instance);
+    if (!instance) return E_POINTER;
+    *instance = NULL;
 
     if (!(impl = calloc(1, sizeof(*impl))))
     {
@@ -227,6 +317,8 @@ static HRESULT WINAPI factory_ActivateInstance(IActivationFactory *iface, IInspe
 
     impl->IAccessibilitySettings_iface.lpVtbl = &accessibilitysettings_vtbl;
     impl->ref = 1;
+    InitializeCriticalSection(&impl->handlers_cs);
+    list_init(&impl->high_contrast_changed_handlers);
 
     *instance = (IInspectable *)&impl->IAccessibilitySettings_iface;
     return S_OK;

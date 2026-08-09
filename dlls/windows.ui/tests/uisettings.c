@@ -54,6 +54,63 @@ static void check_interface_( unsigned int line, void *obj, const IID *iid, BOOL
         IUnknown_Release( unk );
 }
 
+struct accessibility_changed_handler
+{
+    ITypedEventHandler_AccessibilitySettings_IInspectable iface;
+    LONG ref;
+    LONG calls;
+};
+
+static inline struct accessibility_changed_handler *impl_from_accessibility_changed_handler(
+        ITypedEventHandler_AccessibilitySettings_IInspectable *iface)
+{
+    return CONTAINING_RECORD(iface, struct accessibility_changed_handler, iface);
+}
+
+static HRESULT WINAPI accessibility_changed_handler_QueryInterface(
+        ITypedEventHandler_AccessibilitySettings_IInspectable *iface, REFIID iid, void **out)
+{
+    if (!out) return E_POINTER;
+    *out = NULL;
+    if (!IsEqualIID(iid, &IID_IUnknown)
+            && !IsEqualIID(iid, &IID_ITypedEventHandler_AccessibilitySettings_IInspectable))
+        return E_NOINTERFACE;
+    *out = iface;
+    ITypedEventHandler_AccessibilitySettings_IInspectable_AddRef(iface);
+    return S_OK;
+}
+
+static ULONG WINAPI accessibility_changed_handler_AddRef(
+        ITypedEventHandler_AccessibilitySettings_IInspectable *iface)
+{
+    return InterlockedIncrement(&impl_from_accessibility_changed_handler(iface)->ref);
+}
+
+static ULONG WINAPI accessibility_changed_handler_Release(
+        ITypedEventHandler_AccessibilitySettings_IInspectable *iface)
+{
+    return InterlockedDecrement(&impl_from_accessibility_changed_handler(iface)->ref);
+}
+
+static HRESULT WINAPI accessibility_changed_handler_Invoke(
+        ITypedEventHandler_AccessibilitySettings_IInspectable *iface,
+        IAccessibilitySettings *sender, IInspectable *args)
+{
+    struct accessibility_changed_handler *impl = impl_from_accessibility_changed_handler(iface);
+    ok(sender != NULL, "Expected a sender.\n");
+    ok(args == NULL, "Expected null event arguments, got %p.\n", args);
+    InterlockedIncrement(&impl->calls);
+    return S_OK;
+}
+
+static const ITypedEventHandler_AccessibilitySettings_IInspectableVtbl accessibility_changed_handler_vtbl =
+{
+    accessibility_changed_handler_QueryInterface,
+    accessibility_changed_handler_AddRef,
+    accessibility_changed_handler_Release,
+    accessibility_changed_handler_Invoke,
+};
+
 static DWORD get_app_theme(void)
 {
     DWORD ret = 0, len = sizeof(ret), type;
@@ -465,6 +522,12 @@ static void test_AccessibilitySettings(void)
     IAccessibilitySettings *settings;
     IActivationFactory *factory;
     IInspectable *inspectable;
+    struct accessibility_changed_handler handler = {{&accessibility_changed_handler_vtbl}, 1};
+    EventRegistrationToken token, token2, unknown = {.value = 0x12345678};
+    TrustLevel trust_level;
+    HSTRING class_name_value, scheme;
+    IID *iids;
+    ULONG iid_count;
     boolean value;
     HSTRING str;
     HRESULT hr;
@@ -501,6 +564,27 @@ static void test_AccessibilitySettings(void)
     check_interface( inspectable, &IID_IAgileObject, TRUE );
     check_interface( inspectable, &IID_IAccessibilitySettings, TRUE );
 
+    iid_count = 0xdeadbeef;
+    iids = (void *)0xdeadbeef;
+    hr = IAccessibilitySettings_GetIids( settings, &iid_count, &iids );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( iid_count == 1, "Got unexpected IID count %lu.\n", iid_count );
+    ok( iids && IsEqualIID( &iids[0], &IID_IAccessibilitySettings ),
+        "Got unexpected interface list.\n" );
+    CoTaskMemFree( iids );
+
+    class_name_value = NULL;
+    hr = IAccessibilitySettings_GetRuntimeClassName( settings, &class_name_value );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( !wcscmp( WindowsGetStringRawBuffer( class_name_value, NULL ), class_name ),
+        "Got unexpected runtime class %s.\n", debugstr_hstring( class_name_value ) );
+    WindowsDeleteString( class_name_value );
+
+    trust_level = FullTrust;
+    hr = IAccessibilitySettings_GetTrustLevel( settings, &trust_level );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( trust_level == BaseTrust, "Got unexpected trust level %u.\n", trust_level );
+
     hr = IAccessibilitySettings_get_HighContrast( settings, &value );
     ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
 
@@ -509,8 +593,35 @@ static void test_AccessibilitySettings(void)
     ok( ret, "SystemParametersInfoW failed, error %lu.\n", GetLastError() );
     ok( value == !!(high_contrast.dwFlags & HCF_HIGHCONTRASTON), "Got unexpected high contrast value.\n" );
 
+    scheme = (HSTRING)0xdeadbeef;
+    hr = IAccessibilitySettings_get_HighContrastScheme( settings, &scheme );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( scheme == NULL || WindowsGetStringRawBuffer( scheme, NULL ) != NULL,
+        "Got invalid high contrast scheme.\n" );
+    WindowsDeleteString( scheme );
+
+    token.value = token2.value = 0;
+    hr = IAccessibilitySettings_add_HighContrastChanged( settings, NULL, &token );
+    ok( hr == E_INVALIDARG, "Got unexpected hr %#lx.\n", hr );
+    hr = IAccessibilitySettings_add_HighContrastChanged( settings, &handler.iface, NULL );
+    ok( hr == E_POINTER, "Got unexpected hr %#lx.\n", hr );
+    hr = IAccessibilitySettings_add_HighContrastChanged( settings, &handler.iface, &token );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    hr = IAccessibilitySettings_add_HighContrastChanged( settings, &handler.iface, &token2 );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( token.value && token2.value && token.value != token2.value,
+        "Got invalid event tokens %I64x and %I64x.\n", token.value, token2.value );
+    ok( handler.ref == 3, "Got unexpected handler refcount %ld.\n", handler.ref );
+    hr = IAccessibilitySettings_remove_HighContrastChanged( settings, unknown );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( handler.ref == 3, "Unknown token changed handler refcount to %ld.\n", handler.ref );
+    hr = IAccessibilitySettings_remove_HighContrastChanged( settings, token );
+    ok( hr == S_OK, "Got unexpected hr %#lx.\n", hr );
+    ok( handler.ref == 2, "Got unexpected handler refcount %ld.\n", handler.ref );
+
     IAccessibilitySettings_Release( settings );
     IInspectable_Release( inspectable );
+    ok( handler.ref == 1, "Destroying settings left handler refcount %ld.\n", handler.ref );
     ref = IActivationFactory_Release( factory );
     ok( ref == 1, "got ref %ld.\n", ref );
 }

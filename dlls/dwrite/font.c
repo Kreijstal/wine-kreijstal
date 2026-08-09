@@ -8095,9 +8095,23 @@ static HRESULT WINAPI dwritefontsetbuilder_AddFontFaceReference(IDWriteFontSetBu
 
 static HRESULT WINAPI dwritefontsetbuilder_AddFontSet(IDWriteFontSetBuilder2 *iface, IDWriteFontSet *fontset)
 {
-    FIXME("%p, %p.\n", iface, fontset);
+    struct dwrite_fontset_builder *builder = impl_from_IDWriteFontSetBuilder2(iface);
+    struct dwrite_fontset *set = unsafe_impl_from_IDWriteFontSet(fontset);
+    unsigned int i;
 
-    return E_NOTIMPL;
+    TRACE("%p, %p.\n", iface, fontset);
+
+    if (!set)
+        return E_INVALIDARG;
+
+    if (!dwrite_array_reserve((void **)&builder->entries, &builder->capacity,
+            builder->count + set->count, sizeof(*builder->entries)))
+        return E_OUTOFMEMORY;
+
+    for (i = 0; i < set->count; ++i)
+        builder->entries[builder->count++] = addref_fontset_entry(set->entries[i]);
+
+    return S_OK;
 }
 
 static HRESULT WINAPI dwritefontsetbuilder_CreateFontSet(IDWriteFontSetBuilder2 *iface, IDWriteFontSet **fontset)

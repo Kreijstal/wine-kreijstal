@@ -40,6 +40,16 @@ interface IWineDXGISwapChainFactory : IUnknown
 [
     object,
     local,
+    uuid(8f4e921e-5074-4e85-9ff8-f2c7b7693d11)
+]
+interface IWineDXGICompositionSwapChain : IUnknown
+{
+    HRESULT get_composition_surface_handle([out] HANDLE *handle);
+}
+
+[
+    object,
+    local,
     uuid(3e1ff30b-c951-48c3-b010-0fb49f3dca71)
 ]
 interface IWineDXGIDevice : IDXGIDevice3
@@ -51,6 +61,27 @@ interface IWineDXGIDevice : IDXGIDevice3
         [in] IUnknown *outer,
         [in] BOOL needs_surface,
         [out] void **resource
+    );
+    HRESULT create_composition_shared_handle(
+        [in] IDXGISurface *surface,
+        [out] HANDLE *handle,
+        [out] UINT *memory_type_index
+    );
+    HRESULT create_composition_surfaces(
+        [in] const DXGI_SURFACE_DESC *desc,
+        [in] UINT surface_count,
+        [in] DXGI_USAGE usage,
+        [out, size_is(surface_count)] IDXGISurface **surfaces
+    );
+    HRESULT publish_composition_surface(
+        [in] IDXGISurface *surface,
+        [out] HANDLE *sync_handle
+    );
+    HRESULT open_composition_shared_surface(
+        [in] HANDLE handle,
+        [in] const DXGI_SURFACE_DESC *desc,
+        [in] DXGI_USAGE usage,
+        [out] IDXGISurface **surface
     );
 }
 

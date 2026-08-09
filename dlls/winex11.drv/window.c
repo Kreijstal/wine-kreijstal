@@ -2646,6 +2646,7 @@ void X11DRV_DestroyWindow( HWND hwnd )
     struct x11drv_thread_data *thread_data = x11drv_thread_data();
     struct x11drv_win_data *data;
 
+    x11drv_dcomp_window_destroyed( hwnd );
     if (!(data = get_win_data( hwnd ))) return;
 
     destroy_whole_window( data, FALSE );
@@ -3282,6 +3283,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     struct window_rects old_rects;
     BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
 
+    x11drv_dcomp_window_changed( hwnd );
     if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
 
     if (!(data = get_win_data( hwnd ))) return;
@@ -3317,6 +3319,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     if (!data->whole_window)
     {
         release_win_data( data );
+        x11drv_dcomp_window_changed( hwnd );
         return;
     }
 
@@ -3353,6 +3356,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 
     XFlush( data->display );  /* make sure changes are done before we start painting again */
     release_win_data( data );
+    x11drv_dcomp_window_changed( hwnd );
 
     if (was_fullscreen) NtUserClipCursor( NULL );
 }

@@ -2133,6 +2133,34 @@ void make_window_embedded( struct x11drv_win_data *data )
 
 
 /***********************************************************************
+ *		visible_rect_in_screen
+ *
+ * The visible rect in virtual screen coordinates, which is what an X window
+ * position is derived from.
+ *
+ * A layered child window has no X window of its own in the normal child model;
+ * it is given an independent ARGB one created under the root, next to its
+ * top-level ancestor rather than inside it. Its stored rects stay
+ * parent-relative, as they are for every child, so using them directly places
+ * that root-level X window at the parent-relative offset counted from the
+ * desktop origin. Map them out of the parent first so the presented pixels
+ * land where the window actually is on screen.
+ */
+static RECT visible_rect_in_screen( struct x11drv_win_data *data )
+{
+    RECT rect = data->rects.visible;
+    HWND parent;
+
+    if (!data->layered) return rect;
+    parent = NtUserGetAncestor( data->hwnd, GA_PARENT );
+    if (!parent || parent == NtUserGetDesktopWindow()) return rect;
+
+    NtUserMapWindowPoints( parent, 0, (POINT *)&rect, 2, 0 );
+    return rect;
+}
+
+
+/***********************************************************************
  *		sync_window_position
  *
  * Synchronize the X window position with the Windows one
@@ -2161,7 +2189,7 @@ static void sync_window_position( struct x11drv_win_data *data, UINT swp_flags, 
     set_mwm_hints( data, style, ex_style );
     update_net_wm_states( data );
 
-    new_rect = data->rects.visible;
+    new_rect = visible_rect_in_screen( data );
 
     /* if the window has been moved offscreen by the window manager, we didn't tell the Win32 side about it */
     window_rect = window_rect_from_visible( old_rects, data->desired_state.rect );
@@ -2425,6 +2453,7 @@ static void create_whole_window( struct x11drv_win_data *data )
     BYTE alpha;
     DWORD layered_flags;
     HRGN win_rgn;
+    RECT visible;
     POINT pos;
 
     if ((win_rgn = NtGdiCreateRectRgn( 0, 0, 0, 0 )) &&
@@ -2442,12 +2471,13 @@ static void create_whole_window( struct x11drv_win_data *data )
     mask = get_window_attributes( data, &attr ) | CWOverrideRedirect;
     attr.override_redirect = !data->managed;
 
-    if (!(cx = data->rects.visible.right - data->rects.visible.left)) cx = 1;
+    visible = visible_rect_in_screen( data );
+    if (!(cx = visible.right - visible.left)) cx = 1;
     else if (cx > 65535) cx = 65535;
-    if (!(cy = data->rects.visible.bottom - data->rects.visible.top)) cy = 1;
+    if (!(cy = visible.bottom - visible.top)) cy = 1;
     else if (cy > 65535) cy = 65535;
 
-    pos = virtual_screen_to_root( data->rects.visible.left, data->rects.visible.top );
+    pos = virtual_screen_to_root( visible.left, visible.top );
     data->whole_window = XCreateWindow( data->display, root_window, pos.x, pos.y,
                                         cx, cy, 0, data->vis.depth, InputOutput,
                                         data->vis.visual, mask, &attr );

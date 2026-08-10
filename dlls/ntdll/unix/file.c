@@ -3861,8 +3861,6 @@ static NTSTATUS nt_to_unix_file_name( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *n
     name     = attr->ObjectName->Buffer;
     name_len = attr->ObjectName->Length / sizeof(WCHAR);
 
-    if (name_len && name[0] == '\\') return STATUS_INVALID_PARAMETER;
-
     unix_len = name_len * 3 + MAX_DIR_ENTRY_LEN + 3;
     if (!(unix_name = malloc( unix_len ))) return STATUS_NO_MEMORY;
     unix_name[0] = '.';
@@ -3873,6 +3871,12 @@ static NTSTATUS nt_to_unix_file_name( OBJECT_ATTRIBUTES *attr, UNICODE_STRING *n
         {
             if (needs_close) close( root_fd );
             status = STATUS_BAD_DEVICE_TYPE;
+        }
+        else if (name_len && name[0] == '\\')
+        {
+            /* a name relative to a directory must not start with a backslash */
+            if (needs_close) close( root_fd );
+            status = STATUS_INVALID_PARAMETER;
         }
         else
         {

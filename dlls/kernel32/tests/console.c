@@ -4757,6 +4757,37 @@ static void test_console_as_root_directory(void)
     CloseHandle( handle );
 }
 
+static HANDLE create_condrv_server(void)
+{
+    OBJECT_ATTRIBUTES attr;
+    IO_STATUS_BLOCK iosb;
+    UNICODE_STRING name;
+    NTSTATUS status;
+    HANDLE handle;
+
+    RtlInitUnicodeString( &name, L"\\Device\\ConDrv\\Server" );
+    InitializeObjectAttributes( &attr, &name, OBJ_INHERIT, NULL, NULL );
+    status = NtCreateFile( &handle, FILE_WRITE_PROPERTIES | FILE_READ_PROPERTIES | SYNCHRONIZE,
+                           &attr, &iosb, NULL, FILE_ATTRIBUTE_NORMAL, 0, FILE_OPEN,
+                           FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0 );
+    return status ? NULL : handle;
+}
+
+/* open the console reference the way winconpty does, i.e. with a leading
+ * backslash in the name relative to the console server handle */
+static NTSTATUS open_condrv_reference( HANDLE server, HANDLE *reference )
+{
+    OBJECT_ATTRIBUTES attr;
+    IO_STATUS_BLOCK iosb;
+    UNICODE_STRING name;
+
+    RtlInitUnicodeString( &name, L"\\Reference" );
+    InitializeObjectAttributes( &attr, &name, 0, server, NULL );
+    return NtCreateFile( reference, FILE_READ_DATA | FILE_WRITE_DATA | FILE_WRITE_PROPERTIES |
+                         FILE_READ_PROPERTIES | SYNCHRONIZE, &attr, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                         0, FILE_OPEN, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0 );
+}
+
 static void test_condrv_server_as_root_directory(void)
 {
     OBJECT_ATTRIBUTES attr;
@@ -4778,18 +4809,36 @@ static void test_condrv_server_as_root_directory(void)
     if (status)
     {
         win_skip( "cannot open \\Device\\ConDrv\\Server, skipping RootDirectory test" );
+        return;
     }
-    else
-    {
-        RtlInitUnicodeString( &name, L"" );
-        InitializeObjectAttributes( &attr, &name, 0, handle, NULL );
-        status = NtCreateFile( &h2, SYNCHRONIZE, &attr, &iosb, NULL, 0,
-                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                               FILE_OPEN, 0, NULL, 0 );
-        ok( status == STATUS_NOT_FOUND, "NtCreateFile returned %#lx\n", status );
 
-        CloseHandle( handle );
-    }
+    RtlInitUnicodeString( &name, L"" );
+    InitializeObjectAttributes( &attr, &name, 0, handle, NULL );
+    status = NtCreateFile( &h2, SYNCHRONIZE, &attr, &iosb, NULL, 0,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           FILE_OPEN, 0, NULL, 0 );
+    ok( status == STATUS_NOT_FOUND, "NtCreateFile returned %#lx\n", status );
+
+    RtlInitUnicodeString( &name, L"Reference" );
+    InitializeObjectAttributes( &attr, &name, 0, handle, NULL );
+    status = NtCreateFile( &h2, FILE_READ_DATA | FILE_WRITE_DATA | FILE_WRITE_PROPERTIES |
+                           FILE_READ_PROPERTIES | SYNCHRONIZE, &attr, &iosb, NULL, FILE_ATTRIBUTE_NORMAL,
+                           0, FILE_OPEN, FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0 );
+    ok( !status, "NtCreateFile returned %#lx\n", status );
+    if (!status) CloseHandle( h2 );
+
+    CloseHandle( handle );
+
+    /* the relative name may start with a backslash: the console device parses the
+     * name itself, so the object manager syntax rules for directories don't apply */
+    handle = create_condrv_server();
+    ok( handle != NULL, "could not create console server\n" );
+
+    status = open_condrv_reference( handle, &h2 );
+    ok( !status, "NtCreateFile returned %#lx\n", status );
+    if (!status) CloseHandle( h2 );
+
+    CloseHandle( handle );
 }
 
 static void test_AttachConsole_child(DWORD console_pid)

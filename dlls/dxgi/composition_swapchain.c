@@ -219,17 +219,29 @@ static HRESULT composition_swapchain_create_buffers(struct composition_swapchain
     IWineDXGIDevice_Release(wine_device);
     if (i == desc->BufferCount) return S_OK;
 
-    while (i--) CloseHandle(shared_buffers[i]);
+    while (i--)
+    {
+        CloseHandle(shared_buffers[i]);
+        shared_buffers[i] = NULL;
+    }
     composition_swapchain_release_buffers(buffers, desc->BufferCount);
     return hr;
 }
 
+/* Both release helpers clear as they go. Buffer creation releases what it
+ * already made when it gives up part way, and the caller's own failure path
+ * then runs over the same arrays; leaving the released pointers behind would
+ * release and close them a second time. */
 static void composition_swapchain_release_buffers(IDXGISurface **buffers, UINT count)
 {
     UINT i;
 
     for (i = 0; i < count; ++i)
-        if (buffers[i]) IDXGISurface_Release(buffers[i]);
+    {
+        if (!buffers[i]) continue;
+        IDXGISurface_Release(buffers[i]);
+        buffers[i] = NULL;
+    }
 }
 
 static void composition_swapchain_release_shared_buffers(HANDLE *buffers, UINT count)
@@ -237,7 +249,11 @@ static void composition_swapchain_release_shared_buffers(HANDLE *buffers, UINT c
     UINT i;
 
     for (i = 0; i < count; ++i)
-        if (buffers[i]) CloseHandle(buffers[i]);
+    {
+        if (!buffers[i]) continue;
+        CloseHandle(buffers[i]);
+        buffers[i] = NULL;
+    }
 }
 
 static BOOL composition_swapchain_buffers_referenced(struct composition_swapchain *swapchain)

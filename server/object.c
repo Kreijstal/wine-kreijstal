@@ -316,11 +316,18 @@ struct object *lookup_named_object( struct object *root, struct unicode_str name
 
     if (root)
     {
-        /* if root is specified path shouldn't start with backslash */
         if (name.len && name.str[0] == '\\')
         {
-            set_error( STATUS_OBJECT_PATH_SYNTAX_BAD );
-            return NULL;
+            /* if root is a directory the path shouldn't start with backslash; for any
+             * other root object the name is parsed by the object itself, which expects
+             * the leading backslash to be stripped */
+            if (root->ops->type == &directory_type)
+            {
+                set_error( STATUS_OBJECT_PATH_SYNTAX_BAD );
+                return NULL;
+            }
+            name.str++;
+            name.len -= sizeof(WCHAR);
         }
         parent = grab_object( root );
     }

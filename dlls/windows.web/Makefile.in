@@ -1,8 +1,14 @@
 MODULE  = windows.web.dll
-IMPORTS = combase
+IMPORTS = combase winhttp
 
 SOURCES = \
 	classes.idl \
+	http_async.c \
+	http_client.c \
+	http_content.c \
+	http_headers.c \
+	http_message.c \
+	http_method.c \
 	json_array.c \
 	json_object.c \
 	json_value.c \

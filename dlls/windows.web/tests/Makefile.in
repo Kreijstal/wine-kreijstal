@@ -1,5 +1,5 @@
 TESTDLL = windows.web.dll
-IMPORTS = combase
+IMPORTS = combase ws2_32
 
 SOURCES = \
 	web.c

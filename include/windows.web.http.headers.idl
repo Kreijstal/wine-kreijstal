@@ -1,0 +1,184 @@
+/*
+ * Windows.Web.Http.Headers definitions
+ *
+ * Copyright 2026 OpenTerminal contributors
+ *
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
+ */
+
+#ifdef __WIDL__
+#pragma winrt ns_prefix
+#endif
+
+import "inspectable.idl";
+import "windowscontracts.idl";
+import "windows.foundation.idl";
+import "windows.storage.streams.idl";
+
+namespace Windows.Web.Http.Headers {
+    interface IHttpContentHeaderCollection;
+    interface IHttpCredentialsHeaderValue;
+    interface IHttpCredentialsHeaderValueFactory;
+    interface IHttpMediaTypeWithQualityHeaderValueCollection;
+    interface IHttpProductInfoHeaderValueCollection;
+    interface IHttpRequestHeaderCollection;
+    interface IHttpResponseHeaderCollection;
+
+    runtimeclass HttpCredentialsHeaderValue;
+
+    declare {
+        interface Windows.Foundation.IReference<UINT32>;
+        interface Windows.Foundation.IReference<UINT64>;
+        interface Windows.Foundation.IReference<Windows.Foundation.DateTime>;
+        interface Windows.Foundation.IReference<Windows.Foundation.TimeSpan>;
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        uuid(40612a44-47ae-4b7e-9124-69628b64aa18)
+    ]
+    interface IHttpContentHeaderCollection : IInspectable
+    {
+        [propget] HRESULT ContentDisposition([out, retval] IInspectable **value);
+        [propput] HRESULT ContentDisposition([in] IInspectable *value);
+        [propget] HRESULT ContentEncoding([out, retval] IInspectable **value);
+        [propget] HRESULT ContentLanguage([out, retval] IInspectable **value);
+        [propget] HRESULT ContentLength([out, retval] Windows.Foundation.IReference<UINT64> **value);
+        [propput] HRESULT ContentLength([in] Windows.Foundation.IReference<UINT64> *value);
+        [propget] HRESULT ContentLocation([out, retval] Windows.Foundation.IUriRuntimeClass **value);
+        [propput] HRESULT ContentLocation([in] Windows.Foundation.IUriRuntimeClass *value);
+        [propget] HRESULT ContentMD5([out, retval] Windows.Storage.Streams.IBuffer **value);
+        [propput] HRESULT ContentMD5([in] Windows.Storage.Streams.IBuffer *value);
+        [propget] HRESULT ContentRange([out, retval] IInspectable **value);
+        [propput] HRESULT ContentRange([in] IInspectable *value);
+        [propget] HRESULT ContentType([out, retval] IInspectable **value);
+        [propput] HRESULT ContentType([in] IInspectable *value);
+        [propget] HRESULT Expires([out, retval] Windows.Foundation.IReference<Windows.Foundation.DateTime> **value);
+        [propput] HRESULT Expires([in] Windows.Foundation.IReference<Windows.Foundation.DateTime> *value);
+        [propget] HRESULT LastModified([out, retval] Windows.Foundation.IReference<Windows.Foundation.DateTime> **value);
+        [propput] HRESULT LastModified([in] Windows.Foundation.IReference<Windows.Foundation.DateTime> *value);
+        HRESULT Append([in] HSTRING name, [in] HSTRING value);
+        HRESULT TryAppendWithoutValidation([in] HSTRING name, [in] HSTRING value, [out, retval] boolean *result);
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        exclusiveto(Windows.Web.Http.Headers.HttpCredentialsHeaderValue),
+        uuid(c34cc3cb-542e-4177-a6c7-b674ce193fbf)
+    ]
+    interface IHttpCredentialsHeaderValue : IInspectable
+    {
+        [propget] HRESULT Parameters([out, retval] IInspectable **value);
+        [propget] HRESULT Scheme([out, retval] HSTRING *value);
+        [propget] HRESULT Token([out, retval] HSTRING *value);
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        exclusiveto(Windows.Web.Http.Headers.HttpCredentialsHeaderValue),
+        uuid(f21d9e91-4d1c-4182-bfd1-34470a62f950)
+    ]
+    interface IHttpCredentialsHeaderValueFactory : IInspectable
+    {
+        HRESULT CreateFromScheme([in] HSTRING scheme,
+                                 [out, retval] Windows.Web.Http.Headers.IHttpCredentialsHeaderValue **value);
+        HRESULT CreateFromSchemeWithToken([in] HSTRING scheme, [in] HSTRING token,
+                                          [out, retval] Windows.Web.Http.Headers.IHttpCredentialsHeaderValue **value);
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        uuid(3c0c6b73-1342-4587-a056-18d02ff67165)
+    ]
+    interface IHttpMediaTypeWithQualityHeaderValueCollection : IInspectable
+    {
+        HRESULT ParseAdd([in] HSTRING input);
+        HRESULT TryParseAdd([in] HSTRING input, [out, retval] boolean *result);
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        uuid(877df74a-d69b-44f8-ad4f-453af9c42ed0)
+    ]
+    interface IHttpProductInfoHeaderValueCollection : IInspectable
+    {
+        HRESULT ParseAdd([in] HSTRING input);
+        HRESULT TryParseAdd([in] HSTRING input, [out, retval] boolean *result);
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        uuid(af40329b-b544-469b-86b9-ac3d466fea36)
+    ]
+    interface IHttpRequestHeaderCollection : IInspectable
+    {
+        [propget] HRESULT Accept([out, retval] Windows.Web.Http.Headers.IHttpMediaTypeWithQualityHeaderValueCollection **value);
+        [propget] HRESULT AcceptEncoding([out, retval] IInspectable **value);
+        [propget] HRESULT AcceptLanguage([out, retval] IInspectable **value);
+        [propget] HRESULT Authorization([out, retval] Windows.Web.Http.Headers.IHttpCredentialsHeaderValue **value);
+        [propput] HRESULT Authorization([in] Windows.Web.Http.Headers.IHttpCredentialsHeaderValue *value);
+        [propget] HRESULT CacheControl([out, retval] IInspectable **value);
+        [propget] HRESULT Connection([out, retval] IInspectable **value);
+        [propget] HRESULT Cookie([out, retval] IInspectable **value);
+        [propget] HRESULT Date([out, retval] Windows.Foundation.IReference<Windows.Foundation.DateTime> **value);
+        [propput] HRESULT Date([in] Windows.Foundation.IReference<Windows.Foundation.DateTime> *value);
+        [propget] HRESULT Expect([out, retval] IInspectable **value);
+        [propget] HRESULT From([out, retval] HSTRING *value);
+        [propput] HRESULT From([in] HSTRING value);
+        [propget] HRESULT Host([out, retval] IInspectable **value);
+        [propput] HRESULT Host([in] IInspectable *value);
+        [propget] HRESULT IfModifiedSince([out, retval] Windows.Foundation.IReference<Windows.Foundation.DateTime> **value);
+        [propput] HRESULT IfModifiedSince([in] Windows.Foundation.IReference<Windows.Foundation.DateTime> *value);
+        [propget] HRESULT IfUnmodifiedSince([out, retval] Windows.Foundation.IReference<Windows.Foundation.DateTime> **value);
+        [propput] HRESULT IfUnmodifiedSince([in] Windows.Foundation.IReference<Windows.Foundation.DateTime> *value);
+        [propget] HRESULT MaxForwards([out, retval] Windows.Foundation.IReference<UINT32> **value);
+        [propput] HRESULT MaxForwards([in] Windows.Foundation.IReference<UINT32> *value);
+        [propget] HRESULT ProxyAuthorization([out, retval] Windows.Web.Http.Headers.IHttpCredentialsHeaderValue **value);
+        [propput] HRESULT ProxyAuthorization([in] Windows.Web.Http.Headers.IHttpCredentialsHeaderValue *value);
+        [propget] HRESULT Referer([out, retval] Windows.Foundation.IUriRuntimeClass **value);
+        [propput] HRESULT Referer([in] Windows.Foundation.IUriRuntimeClass *value);
+        [propget] HRESULT TransferEncoding([out, retval] IInspectable **value);
+        [propget] HRESULT UserAgent([out, retval] Windows.Web.Http.Headers.IHttpProductInfoHeaderValueCollection **value);
+        HRESULT Append([in] HSTRING name, [in] HSTRING value);
+        HRESULT TryAppendWithoutValidation([in] HSTRING name, [in] HSTRING value, [out, retval] boolean *result);
+    }
+
+    [
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        uuid(7a990969-fa3f-41ed-aac6-bf957975c16b)
+    ]
+    interface IHttpResponseHeaderCollection : IInspectable
+    {
+        [propget] HRESULT Age([out, retval] Windows.Foundation.IReference<Windows.Foundation.TimeSpan> **value);
+        [propput] HRESULT Age([in] Windows.Foundation.IReference<Windows.Foundation.TimeSpan> *value);
+        [propget] HRESULT Allow([out, retval] IInspectable **value);
+        [propget] HRESULT CacheControl([out, retval] IInspectable **value);
+        [propget] HRESULT Connection([out, retval] IInspectable **value);
+        [propget] HRESULT Date([out, retval] Windows.Foundation.IReference<Windows.Foundation.DateTime> **value);
+        [propput] HRESULT Date([in] Windows.Foundation.IReference<Windows.Foundation.DateTime> *value);
+        [propget] HRESULT Location([out, retval] Windows.Foundation.IUriRuntimeClass **value);
+        [propput] HRESULT Location([in] Windows.Foundation.IUriRuntimeClass *value);
+        [propget] HRESULT ProxyAuthenticate([out, retval] IInspectable **value);
+        [propget] HRESULT RetryAfter([out, retval] IInspectable **value);
+        [propput] HRESULT RetryAfter([in] IInspectable *value);
+        [propget] HRESULT TransferEncoding([out, retval] IInspectable **value);
+        [propget] HRESULT WwwAuthenticate([out, retval] IInspectable **value);
+        HRESULT Append([in] HSTRING name, [in] HSTRING value);
+        HRESULT TryAppendWithoutValidation([in] HSTRING name, [in] HSTRING value, [out, retval] boolean *result);
+    }
+
+    [
+        activatable(Windows.Web.Http.Headers.IHttpCredentialsHeaderValueFactory,
+                    Windows.Foundation.UniversalApiContract, 1.0),
+        contract(Windows.Foundation.UniversalApiContract, 1.0),
+        marshaling_behavior(agile),
+        threading(both)
+    ]
+    runtimeclass HttpCredentialsHeaderValue
+    {
+        [default] interface Windows.Web.Http.Headers.IHttpCredentialsHeaderValue;
+    }
+}

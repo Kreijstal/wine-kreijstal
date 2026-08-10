@@ -258,8 +258,25 @@ static BOOL validate_scene(const struct wine_dcomp_scene *scene, UINT size,
     {
         const struct wine_dcomp_surface *surface = *surfaces + i;
         static const uint8_t zero_uuid[VK_UUID_SIZE];
+        BOOL has_front = !!(surface->flags & WINE_DCOMP_SURFACE_HAS_FRONT);
 
         if (surface->flags & ~WINE_DCOMP_SURFACE_HAS_FRONT) return FALSE;
+        if (!has_front && !surface->width)
+        {
+            if (surface->resource || surface->sync_resource || surface->sync_value
+                    || surface->adapter_luid
+                    || memcmp(surface->device_uuid, zero_uuid, sizeof(zero_uuid))
+                    || surface->height || surface->format || surface->alpha_mode
+                    || surface->resource_type || surface->sync_resource_type
+                    || surface->sync_type || surface->memory_type_index
+                    || surface->image_usage || surface->image_flags
+                    || surface->sample_count || surface->mip_levels
+                    || surface->array_layers || surface->front_buffer
+                    || surface->buffer_count || surface->damage_left
+                    || surface->damage_top || surface->damage_right
+                    || surface->damage_bottom) return FALSE;
+            continue;
+        }
         if (!surface->width || !surface->height || surface->width > MAX_SURFACE_EXTENT
                 || surface->height > MAX_SURFACE_EXTENT
                 || surface->width > SIZE_MAX / surface->height
@@ -286,7 +303,7 @@ static BOOL validate_scene(const struct wine_dcomp_scene *scene, UINT size,
                 || surface->damage_bottom < surface->damage_top
                 || surface->damage_right > surface->width
                 || surface->damage_bottom > surface->height) return FALSE;
-        if (surface->flags & WINE_DCOMP_SURFACE_HAS_FRONT)
+        if (has_front)
         {
             if (surface->resource_type != WINE_DCOMP_RESOURCE_OPAQUE_FD
                     || surface->resource > INT_MAX
@@ -857,20 +874,7 @@ static struct dcomp_state *build_state(const struct wine_dcomp_scene *scene,
             if (base->visuals[i].content_kind != WINE_DCOMP_CONTENT_NONE
                     && base->visuals[i].content >= scene->surface_count) goto failed;
         for (i = 0; i < base->surface_count; ++i)
-            if (base->surfaces[i].desc.width != surfaces[i].width
-                    || base->surfaces[i].desc.height != surfaces[i].height
-                    || base->surfaces[i].desc.format != surfaces[i].format
-                    || base->surfaces[i].desc.alpha_mode != surfaces[i].alpha_mode
-                    || base->surfaces[i].desc.memory_type_index != surfaces[i].memory_type_index
-                    || base->surfaces[i].desc.image_usage != surfaces[i].image_usage
-                    || base->surfaces[i].desc.image_flags != surfaces[i].image_flags
-                    || base->surfaces[i].desc.sample_count != surfaces[i].sample_count
-                    || base->surfaces[i].desc.mip_levels != surfaces[i].mip_levels
-                    || base->surfaces[i].desc.array_layers != surfaces[i].array_layers
-                    || base->surfaces[i].desc.adapter_luid != surfaces[i].adapter_luid
-                    || surfaces[i].generation < base->surfaces[i].desc.generation
-                    || memcmp(base->surfaces[i].desc.device_uuid, surfaces[i].device_uuid,
-                    sizeof(surfaces[i].device_uuid))) goto failed;
+            if (surfaces[i].generation < base->surfaces[i].desc.generation) goto failed;
         state->target_count = base->target_count;
         state->visual_count = base->visual_count;
         if ((state->target_count && !(state->targets = malloc(state->target_count * sizeof(*state->targets))))

@@ -5669,7 +5669,7 @@ static TWIPS_ENTRY( ICONHORIZONTALSPACING, -1125, METRICS_KEY, "IconSpacing" );
 static TWIPS_ENTRY( ICONVERTICALSPACING, -1125, METRICS_KEY, "IconVerticalSpacing" );
 static TWIPS_ENTRY( MENUHEIGHT, -270, METRICS_KEY, "MenuHeight" );
 static TWIPS_ENTRY( MENUWIDTH, -270, METRICS_KEY, "MenuWidth" );
-static TWIPS_ENTRY( PADDEDBORDERWIDTH, 0, METRICS_KEY, "PaddedBorderWidth" );
+static TWIPS_ENTRY( PADDEDBORDERWIDTH, -60, METRICS_KEY, "PaddedBorderWidth" );
 static TWIPS_ENTRY( SCROLLHEIGHT, -240, METRICS_KEY, "ScrollHeight" );
 static TWIPS_ENTRY( SCROLLWIDTH, -240, METRICS_KEY, "ScrollWidth" );
 static TWIPS_ENTRY( SMCAPTIONHEIGHT, -225, METRICS_KEY, "SmCaptionHeight" );
@@ -7043,6 +7043,9 @@ int get_system_metrics( int index )
         get_entry( &entry_BORDER, 0, &ret );
         ret = max( ret, 1 );
         return get_system_metrics( SM_CYDLGFRAME ) + ret;
+    case SM_CXPADDEDBORDER:
+        get_entry( &entry_PADDEDBORDERWIDTH, 0, &ret );
+        return ret;
     case SM_CXMINTRACK:
         return get_system_metrics( SM_CXMIN );
     case SM_CYMINTRACK:
@@ -7249,6 +7252,9 @@ static int get_system_metrics_for_dpi( int index, unsigned int dpi )
         get_entry_dpi( &entry_BORDER, 0, &ret, dpi );
         ret = max( ret, 1 );
         return get_system_metrics_for_dpi( SM_CYDLGFRAME, dpi ) + ret;
+    case SM_CXPADDEDBORDER:
+        get_entry_dpi( &entry_PADDEDBORDERWIDTH, 0, &ret, dpi );
+        return ret;
     case SM_CXICONSPACING:
         im.cbSize = sizeof(im);
         NtUserSystemParametersInfoForDpi( SPI_GETICONMETRICS, sizeof(im), &im, 0, dpi );
@@ -7656,6 +7662,9 @@ ULONG_PTR WINAPI NtUserCallTwoParam( ULONG_PTR arg1, ULONG_PTR arg2, ULONG code 
     case NtUserCallTwoParam_GetVirtualScreenRect:
         *(RECT *)arg1 = get_virtual_screen_rect( no_dpi, arg2 );
         return 1;
+
+    case NtUserCallTwoParam_DCompositionUpdate:
+        return __wine_dcomp_update( (const struct wine_dcomp_scene *)arg1, arg2 );
 
     /* temporary exports */
     case NtUserAllocWinProc:

@@ -2696,8 +2696,18 @@ BOOL WINAPI NtUserUpdateLayeredWindow( HWND hwnd, HDC hdc_dst, const POINT *pts_
 
     if (pts_dst)
     {
-        offset.cx = pts_dst->x - new_rects.window.left;
-        offset.cy = pts_dst->y - new_rects.window.top;
+        POINT dst = *pts_dst;
+        HWND parent = NtUserGetAncestor( hwnd, GA_PARENT );
+
+        /* UpdateLayeredWindow specifies the destination in screen
+         * coordinates, including for layered child windows. Window position
+         * storage for a child is parent-relative, so map only at this API
+         * boundary before applying the normal window-position transaction. */
+        if (parent && parent != get_desktop_window())
+            map_window_points( 0, parent, &dst, 1, get_thread_dpi() );
+
+        offset.cx = dst.x - new_rects.window.left;
+        offset.cy = dst.y - new_rects.window.top;
         OffsetRect( &new_rects.client, offset.cx, offset.cy );
         OffsetRect( &new_rects.window, offset.cx, offset.cy );
         OffsetRect( &new_rects.visible, offset.cx, offset.cy );

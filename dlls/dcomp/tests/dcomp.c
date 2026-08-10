@@ -1095,6 +1095,140 @@ done:
     ID3D11Device_Release(device);
 }
 
+/* IDXGIFactory2::CreateSwapChainForComposition() is the entry point a XAML
+ * swap chain panel uses: it never names a composition surface handle.  The
+ * buffer is only rendered into, never read back through DXGI, so Present() is
+ * the one place that can hand the finished contents to the composition surface
+ * pipeline. */
+static void test_composition_swapchain_present(void)
+{
+    static const float color[4] = {32.0f / 255.0f, 64.0f / 255.0f, 128.0f / 255.0f, 1.0f};
+    DXGI_SWAP_CHAIN_DESC1 desc = {64, 32, DXGI_FORMAT_B8G8R8A8_UNORM, FALSE,
+            {1, 0}, DXGI_USAGE_RENDER_TARGET_OUTPUT, 2, DXGI_SCALING_NONE,
+            DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_ALPHA_MODE_PREMULTIPLIED, 0};
+    IDCompositionDevice *composition_device = NULL;
+    IDCompositionTarget *target = NULL;
+    IDCompositionVisual *visual = NULL;
+    ID3D11DeviceContext *context = NULL;
+    IDXGISwapChain1 *swapchain = NULL;
+    IDXGIFactory2 *factory = NULL;
+    IDXGIAdapter *adapter = NULL;
+    IDXGIDevice *dxgi_device = NULL;
+    ID3D11Device *device;
+    HWND parent = NULL, child = NULL;
+    HBRUSH brush = NULL;
+    ATOM parent_class = 0, child_class = 0;
+    WNDCLASSW parent_wc = {0}, child_wc = {0};
+    COLORREF pixel;
+    HRESULT hr;
+
+    if (!pDCompositionCreateDevice)
+    {
+        win_skip("DCompositionCreateDevice is unavailable.\n");
+        return;
+    }
+    if (!(device = create_d3d11_device())) return;
+    ID3D11Device_GetImmediateContext(device, &context);
+
+    hr = ID3D11Device_QueryInterface(device, &IID_IDXGIDevice, (void **)&dxgi_device);
+    ok(hr == S_OK, "IDXGIDevice query failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IDXGIDevice_GetAdapter(dxgi_device, &adapter);
+    ok(hr == S_OK, "GetAdapter failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IDXGIAdapter_GetParent(adapter, &IID_IDXGIFactory2, (void **)&factory);
+    ok(hr == S_OK, "IDXGIFactory2 query failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = IDXGIFactory2_CreateSwapChainForComposition(factory, (IUnknown *)device, &desc,
+            NULL, &swapchain);
+    if (hr == E_NOTIMPL || hr == DXGI_ERROR_UNSUPPORTED)
+    {
+        win_skip("Composition swap chains are unavailable, hr %#lx.\n", hr);
+        goto done;
+    }
+    ok(hr == S_OK, "CreateSwapChainForComposition failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    /* Deliberately no read back of the buffer before presenting: a panel only
+     * renders into it, and a clear that nothing reads is all the contents the
+     * publication has to carry. */
+    hr = clear_swapchain_buffer(device, context, swapchain, color);
+    ok(hr == S_OK, "Failed to clear the composition buffer, hr %#lx.\n", hr);
+    hr = IDXGISwapChain1_Present(swapchain, 0, 0);
+    ok(hr == S_OK, "Present failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    hr = pDCompositionCreateDevice(dxgi_device, &IID_IDCompositionDevice,
+            (void **)&composition_device);
+    ok(hr == S_OK, "DCompositionCreateDevice failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    brush = CreateSolidBrush(RGB(16, 32, 48));
+    parent_wc.lpfnWndProc = DefWindowProcW;
+    parent_wc.hInstance = GetModuleHandleW(NULL);
+    parent_wc.hbrBackground = brush;
+    parent_wc.lpszClassName = L"WineDCompPresentParent";
+    parent_class = RegisterClassW(&parent_wc);
+    ok(!!parent_class, "Failed to register the parent class, error %lu.\n", GetLastError());
+    child_wc.lpfnWndProc = DefWindowProcW;
+    child_wc.hInstance = parent_wc.hInstance;
+    child_wc.lpszClassName = L"WineDCompPresentChild";
+    child_class = RegisterClassW(&child_wc);
+    ok(!!child_class, "Failed to register the child class, error %lu.\n", GetLastError());
+    parent = CreateWindowExW(0, parent_wc.lpszClassName, L"dcomp present parent",
+            WS_POPUP | WS_VISIBLE, 400, 240, 96, 64, NULL, NULL, parent_wc.hInstance, NULL);
+    ok(!!parent, "Failed to create the parent window.\n");
+    child = CreateWindowExW(WS_EX_LAYERED, child_wc.lpszClassName, L"dcomp present child",
+            WS_CHILD | WS_VISIBLE, 8, 8, 64, 32, parent, NULL, child_wc.hInstance, NULL);
+    ok(!!child, "Failed to create the target window.\n");
+    if (!parent || !child) goto done;
+    UpdateWindow(parent);
+    UpdateWindow(child);
+
+    hr = IDCompositionDevice_CreateTargetForHwnd(composition_device, child, FALSE, &target);
+    ok(hr == S_OK, "CreateTargetForHwnd failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IDCompositionDevice_CreateVisual(composition_device, &visual);
+    ok(hr == S_OK, "CreateVisual failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+    hr = IDCompositionVisual_SetContent(visual, (IUnknown *)swapchain);
+    ok(hr == S_OK, "SetContent(composition swapchain) failed, hr %#lx.\n", hr);
+    hr = IDCompositionTarget_SetRoot(target, visual);
+    ok(hr == S_OK, "SetRoot failed, hr %#lx.\n", hr);
+    hr = IDCompositionDevice_Commit(composition_device);
+    ok(hr == S_OK, "Commit failed, hr %#lx.\n", hr);
+    if (FAILED(hr)) goto done;
+
+    RedrawWindow(child, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
+    flush_events();
+    pixel = get_client_screen_pixel(parent, 2, 2);
+    if (!color_near(pixel, RGB(16, 32, 48), 1))
+    {
+        win_skip("The desktop DC cannot observe the window surface, pixel %#lx.\n", pixel);
+        goto done;
+    }
+    pixel = get_client_screen_pixel(child, 8, 8);
+    ok(color_near(pixel, RGB(32, 64, 128), 2),
+            "Got composed presented pixel %#lx.\n", pixel);
+
+done:
+    if (visual) IDCompositionVisual_Release(visual);
+    if (target) IDCompositionTarget_Release(target);
+    if (composition_device) IDCompositionDevice_Release(composition_device);
+    if (child) DestroyWindow(child);
+    if (parent) DestroyWindow(parent);
+    if (child_class) UnregisterClassW(child_wc.lpszClassName, child_wc.hInstance);
+    if (parent_class) UnregisterClassW(parent_wc.lpszClassName, parent_wc.hInstance);
+    if (brush) DeleteObject(brush);
+    if (swapchain) IDXGISwapChain1_Release(swapchain);
+    if (factory) IDXGIFactory2_Release(factory);
+    if (adapter) IDXGIAdapter_Release(adapter);
+    if (dxgi_device) IDXGIDevice_Release(dxgi_device);
+    if (context) ID3D11DeviceContext_Release(context);
+    ID3D11Device_Release(device);
+}
+
 static void test_surface_updates(void)
 {
     const float clear_color[4] = {0.25f, 0.5f, 0.75f, 1.0f};
@@ -1663,6 +1797,7 @@ START_TEST(dcomp)
     else
         win_skip("DCompositionCreateDevice2 is unavailable.\n");
     test_composition_swapchain();
+    test_composition_swapchain_present();
     test_surface_updates();
     FreeLibrary(module);
 }

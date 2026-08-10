@@ -437,6 +437,21 @@ static HRESULT STDMETHODCALLTYPE dxgi_device_open_composition_shared_surface(
     return hr;
 }
 
+static HRESULT STDMETHODCALLTYPE dxgi_device_copy_composition_surface(
+        IWineDXGIDevice *iface, IDXGISurface *destination, IDXGISurface *source)
+{
+    struct dxgi_device *device = impl_from_IWineDXGIDevice(iface);
+    struct wined3d_device_context *context;
+
+    if (!destination || !source) return E_INVALIDARG;
+
+    wined3d_mutex_lock();
+    context = wined3d_device_get_immediate_context(device->wined3d_device);
+    dxgi_surface_copy(context, destination, source);
+    wined3d_mutex_unlock();
+    return S_OK;
+}
+
 static const struct IWineDXGIDeviceVtbl dxgi_device_vtbl =
 {
     /* IUnknown methods */
@@ -469,6 +484,7 @@ static const struct IWineDXGIDeviceVtbl dxgi_device_vtbl =
     dxgi_device_create_composition_surfaces,
     dxgi_device_publish_composition_surface,
     dxgi_device_open_composition_shared_surface,
+    dxgi_device_copy_composition_surface,
 };
 
 static inline struct dxgi_device *impl_from_IWineDXGISwapChainFactory(IWineDXGISwapChainFactory *iface)

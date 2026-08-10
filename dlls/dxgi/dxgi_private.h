@@ -223,5 +223,7 @@ HRESULT dxgi_resource_init(struct dxgi_resource *resource, IDXGIDevice *device,
 HRESULT dxgi_surface_create_shared_handle(IDXGISurface *surface, HANDLE *handle,
         UINT *memory_type_index);
 HRESULT dxgi_surface_publish_shared(IDXGISurface *surface, HANDLE *sync_handle);
+void dxgi_surface_copy(struct wined3d_device_context *context, IDXGISurface *destination,
+        IDXGISurface *source);
 
 #endif /* __WINE_DXGI_PRIVATE_H */

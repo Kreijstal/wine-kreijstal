@@ -1944,10 +1944,17 @@ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const R
         BOOL in_dirty = dcomp_trace_sample.x >= dirty->left && dcomp_trace_sample.x < dirty->right
                 && dcomp_trace_sample.y >= dirty->top && dcomp_trace_sample.y < dirty->bottom;
 
+        XWindowAttributes attr = {0};
+
         XSync(gdi_display, False);
         XGetGCValues(gdi_display, surface->composed_gc,
                 GCSubwindowMode | GCClipXOrigin | GCClipYOrigin, &values);
-        if (dest_x >= 0 && dest_y >= 0)
+        /* XGetImage fails with BadMatch, which is fatal by default, when the
+         * window is not viewable or the area lies outside it.  A trace must not
+         * be able to kill the process it is tracing. */
+        if (XGetWindowAttributes(gdi_display, surface->window, &attr)
+                && attr.map_state == IsViewable && dest_x >= 0 && dest_y >= 0
+                && dest_x < attr.width && dest_y < attr.height)
             published = XGetImage(gdi_display, surface->window, dest_x, dest_y, 1, 1,
                     AllPlanes, ZPixmap);
         TRACE_(dcomp)("publish drawable %#lx sample image %s/%#lx dest %d,%d X pixel %#lx "

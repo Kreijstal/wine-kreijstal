@@ -33,13 +33,60 @@
 
 #define WIDL_using_Windows_Foundation
 #define WIDL_using_Windows_Foundation_Collections
+#define WIDL_using_Windows_Storage_Streams
 #include "windows.foundation.h"
 #define WIDL_using_Windows_Data_Json
 #include "windows.data.json.h"
+#define WIDL_using_Windows_Web_Http
+#define WIDL_using_Windows_Web_Http_Headers
+#include "windows.web.http.h"
 
 extern IActivationFactory *json_array_factory;
 extern IActivationFactory *json_object_factory;
 extern IActivationFactory *json_value_factory;
+extern IActivationFactory *http_client_factory;
+extern IActivationFactory *http_form_content_factory;
+extern IActivationFactory *http_method_factory;
+extern IActivationFactory *http_request_factory;
+extern IActivationFactory *http_response_factory;
+extern IActivationFactory *http_string_content_factory;
+extern IActivationFactory *http_credentials_factory;
+
+enum http_headers_kind
+{
+    HTTP_HEADERS_REQUEST,
+    HTTP_HEADERS_CONTENT,
+    HTTP_HEADERS_RESPONSE,
+};
+
+struct http_headers;
+
+HRESULT http_headers_create( enum http_headers_kind kind, struct http_headers **out );
+void http_headers_addref( struct http_headers *headers );
+void http_headers_release( struct http_headers *headers );
+IHttpRequestHeaderCollection *http_headers_request_iface( struct http_headers *headers );
+IHttpContentHeaderCollection *http_headers_content_iface( struct http_headers *headers );
+IHttpResponseHeaderCollection *http_headers_response_iface( struct http_headers *headers );
+HRESULT http_headers_append( struct http_headers *headers, HSTRING name, HSTRING value );
+HRESULT http_headers_build( struct http_headers *headers, WCHAR **value );
+
+HRESULT http_content_create( const BYTE *bytes, SIZE_T size, HSTRING media_type, IHttpContent **out );
+HRESULT http_content_get_bytes( IHttpContent *content, const BYTE **bytes, SIZE_T *size, HSTRING *media_type );
+HRESULT http_method_create_literal( const WCHAR *literal, IHttpMethod **out );
+
+HRESULT http_request_create( IHttpMethod *method, IUriRuntimeClass *uri, IHttpRequestMessage **out );
+HRESULT http_request_get_transport( IHttpRequestMessage *request, IHttpMethod **method, IUriRuntimeClass **uri,
+                                    IHttpContent **content, struct http_headers **headers );
+HRESULT http_response_create( HttpStatusCode status, const BYTE *body, SIZE_T body_size,
+                              IHttpRequestMessage *request, IHttpResponseMessage **out );
+
+typedef HRESULT (*http_response_work)( void *context, IHttpResponseMessage **result );
+typedef void (*http_async_context_destroy)( void *context );
+HRESULT http_async_response_create( void *context, http_response_work work,
+                                    http_async_context_destroy destroy,
+                                    IAsyncOperationWithProgress_HttpResponseMessage_HttpProgress **out );
+HRESULT http_async_string_create( HSTRING value, HRESULT error,
+                                  IAsyncOperationWithProgress_HSTRING_UINT64 **out );
 
 HRESULT json_array_push( IJsonArray *iface, IJsonValue *value );
 

@@ -44,6 +44,20 @@ HRESULT WINAPI DllGetActivationFactory( HSTRING classid, IActivationFactory **fa
         IActivationFactory_QueryInterface( json_object_factory, &IID_IActivationFactory, (void **)factory );
     if (!wcscmp( buffer, RuntimeClass_Windows_Data_Json_JsonValue ))
         IActivationFactory_QueryInterface( json_value_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_HttpClient ))
+        IActivationFactory_QueryInterface( http_client_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_HttpFormUrlEncodedContent ))
+        IActivationFactory_QueryInterface( http_form_content_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_HttpMethod ))
+        IActivationFactory_QueryInterface( http_method_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_HttpRequestMessage ))
+        IActivationFactory_QueryInterface( http_request_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_HttpResponseMessage ))
+        IActivationFactory_QueryInterface( http_response_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_HttpStringContent ))
+        IActivationFactory_QueryInterface( http_string_content_factory, &IID_IActivationFactory, (void **)factory );
+    if (!wcscmp( buffer, RuntimeClass_Windows_Web_Http_Headers_HttpCredentialsHeaderValue ))
+        IActivationFactory_QueryInterface( http_credentials_factory, &IID_IActivationFactory, (void **)factory );
 
     if (*factory) return S_OK;
     return CLASS_E_CLASSNOTAVAILABLE;

@@ -22,6 +22,8 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winstring.h"
+#include "winsock2.h"
+#include "ws2tcpip.h"
 
 #include "roapi.h"
 
@@ -30,6 +32,10 @@
 #include "windows.foundation.h"
 #define WIDL_using_Windows_Data_Json
 #include "windows.data.json.h"
+#define WIDL_using_Windows_Storage_Streams
+#define WIDL_using_Windows_Web_Http
+#define WIDL_using_Windows_Web_Http_Headers
+#include "windows.web.http.h"
 
 #include "wine/test.h"
 
@@ -842,6 +848,415 @@ static void test_JsonValueStatics(void)
     ok( ref == 1, "got ref %ld.\n", ref );
 }
 
+struct http_test_server
+{
+    SOCKET listener;
+    char request[8192];
+    unsigned int request_size;
+};
+
+static DWORD WINAPI http_test_server_proc( void *parameter )
+{
+    static const char response[] = "HTTP/1.1 201 Created\r\nContent-Type: application/json\r\n"
+            "Content-Length: 17\r\nConnection: close\r\n\r\n{\"result\":\"wine\"}";
+    struct http_test_server *server = parameter;
+    SOCKET client;
+    int received;
+
+    if ((client = accept( server->listener, NULL, NULL )) == INVALID_SOCKET) return 1;
+    while (server->request_size < sizeof(server->request) - 1)
+    {
+        unsigned int left = sizeof(server->request) - 1 - server->request_size;
+        received = recv( client, server->request + server->request_size, left, 0 );
+        if (received <= 0) break;
+        server->request_size += received;
+        server->request[server->request_size] = 0;
+        if (strstr( server->request, "\r\n\r\n" ) && strstr( server->request, "{\"hello\":\"world\"}" )) break;
+    }
+    send( client, response, sizeof(response) - 1, 0 );
+    shutdown( client, SD_BOTH );
+    closesocket( client );
+    return 0;
+}
+
+static HRESULT get_activation_interface( const WCHAR *name, const IID *iid, void **value )
+{
+    IActivationFactory *factory;
+    HSTRING class_name;
+    HRESULT hr;
+
+    *value = NULL;
+    if (FAILED(hr = WindowsCreateString( name, wcslen( name ), &class_name ))) return hr;
+    hr = RoGetActivationFactory( class_name, &IID_IActivationFactory, (void **)&factory );
+    WindowsDeleteString( class_name );
+    if (FAILED(hr)) return hr;
+    hr = IActivationFactory_QueryInterface( factory, iid, value );
+    IActivationFactory_Release( factory );
+    return hr;
+}
+
+static HRESULT activate_instance_interface( const WCHAR *name, const IID *iid, void **value )
+{
+    IInspectable *instance;
+    HSTRING class_name;
+    HRESULT hr;
+
+    *value = NULL;
+    if (FAILED(hr = WindowsCreateString( name, wcslen( name ), &class_name ))) return hr;
+    hr = RoActivateInstance( class_name, &instance );
+    WindowsDeleteString( class_name );
+    if (FAILED(hr)) return hr;
+    hr = IInspectable_QueryInterface( instance, iid, value );
+    IInspectable_Release( instance );
+    return hr;
+}
+
+static HRESULT create_uri( const WCHAR *text, IUriRuntimeClass **value )
+{
+    IUriRuntimeClassFactory *factory;
+    HSTRING string;
+    HRESULT hr;
+
+    *value = NULL;
+    if (FAILED(hr = get_activation_interface( RuntimeClass_Windows_Foundation_Uri,
+            &IID_IUriRuntimeClassFactory, (void **)&factory ))) return hr;
+    if (SUCCEEDED(hr = WindowsCreateString( text, wcslen( text ), &string )))
+    {
+        hr = IUriRuntimeClassFactory_CreateUri( factory, string, value );
+        WindowsDeleteString( string );
+    }
+    IUriRuntimeClassFactory_Release( factory );
+    return hr;
+}
+
+static HRESULT wait_response( IAsyncOperationWithProgress_HttpResponseMessage_HttpProgress *operation,
+        IHttpResponseMessage **response )
+{
+    IAsyncInfo *info;
+    AsyncStatus status = Started;
+    HRESULT hr;
+    unsigned int i;
+
+    *response = NULL;
+    if (FAILED(hr = IAsyncOperationWithProgress_HttpResponseMessage_HttpProgress_QueryInterface(
+            operation, &IID_IAsyncInfo, (void **)&info ))) return hr;
+    for (i = 0; i < 500 && status == Started; ++i)
+    {
+        Sleep( 10 );
+        if (FAILED(hr = IAsyncInfo_get_Status( info, &status ))) break;
+    }
+    if (SUCCEEDED(hr) && status != Completed)
+    {
+        if (status == Error) IAsyncInfo_get_ErrorCode( info, &hr );
+        else hr = HRESULT_FROM_WIN32( ERROR_TIMEOUT );
+    }
+    IAsyncInfo_Release( info );
+    if (SUCCEEDED(hr)) hr = IAsyncOperationWithProgress_HttpResponseMessage_HttpProgress_GetResults(
+            operation, response );
+    return hr;
+}
+
+static HRESULT wait_string( IAsyncOperationWithProgress_HSTRING_UINT64 *operation, HSTRING *value )
+{
+    IAsyncInfo *info;
+    AsyncStatus status = Started;
+    HRESULT hr;
+    unsigned int i;
+
+    *value = NULL;
+    if (FAILED(hr = IAsyncOperationWithProgress_HSTRING_UINT64_QueryInterface(
+            operation, &IID_IAsyncInfo, (void **)&info ))) return hr;
+    for (i = 0; i < 500 && status == Started; ++i)
+    {
+        Sleep( 10 );
+        if (FAILED(hr = IAsyncInfo_get_Status( info, &status ))) break;
+    }
+    if (SUCCEEDED(hr) && status != Completed) hr = HRESULT_FROM_WIN32( ERROR_TIMEOUT );
+    IAsyncInfo_Release( info );
+    if (SUCCEEDED(hr)) hr = IAsyncOperationWithProgress_HSTRING_UINT64_GetResults( operation, value );
+    return hr;
+}
+
+struct form_test_values
+{
+    IIterable_IKeyValuePair_HSTRING_HSTRING iterable_iface;
+    IIterator_IKeyValuePair_HSTRING_HSTRING iterator_iface;
+    IKeyValuePair_HSTRING_HSTRING pair_iface;
+    HSTRING key, value;
+    unsigned int index;
+};
+
+static struct form_test_values form_values;
+
+static HRESULT form_values_qi( void *iface, REFIID iid, void **out )
+{
+    if (!out) return E_POINTER;
+    *out = NULL;
+    if (IsEqualGUID( iid, &IID_IUnknown ) || IsEqualGUID( iid, &IID_IInspectable ) ||
+        IsEqualGUID( iid, &IID_IAgileObject ) || IsEqualGUID( iid, &IID_IIterable_IKeyValuePair_HSTRING_HSTRING ))
+        *out = &form_values.iterable_iface;
+    else if (IsEqualGUID( iid, &IID_IIterator_IKeyValuePair_HSTRING_HSTRING ))
+        *out = &form_values.iterator_iface;
+    else if (IsEqualGUID( iid, &IID_IKeyValuePair_HSTRING_HSTRING ))
+        *out = &form_values.pair_iface;
+    else return E_NOINTERFACE;
+    IUnknown_AddRef( (IUnknown *)*out );
+    return S_OK;
+}
+static ULONG form_values_addref( void *iface ) { return 2; }
+static ULONG form_values_release( void *iface ) { return 1; }
+static HRESULT form_values_iids( void *iface, ULONG *count, IID **iids ) { return E_NOTIMPL; }
+static HRESULT form_values_name( void *iface, HSTRING *name ) { return E_NOTIMPL; }
+static HRESULT form_values_trust( void *iface, TrustLevel *level )
+{ if (!level) return E_POINTER; *level = BaseTrust; return S_OK; }
+
+static HRESULT WINAPI form_iterable_First( IIterable_IKeyValuePair_HSTRING_HSTRING *iface,
+        IIterator_IKeyValuePair_HSTRING_HSTRING **value )
+{
+    if (!value) return E_POINTER;
+    form_values.index = 0;
+    *value = &form_values.iterator_iface;
+    IIterator_IKeyValuePair_HSTRING_HSTRING_AddRef( *value );
+    return S_OK;
+}
+static const IIterable_IKeyValuePair_HSTRING_HSTRINGVtbl form_iterable_vtbl =
+{
+    (void *)form_values_qi, (void *)form_values_addref, (void *)form_values_release,
+    (void *)form_values_iids, (void *)form_values_name, (void *)form_values_trust,
+    form_iterable_First,
+};
+
+static HRESULT WINAPI form_iterator_Current( IIterator_IKeyValuePair_HSTRING_HSTRING *iface,
+        IKeyValuePair_HSTRING_HSTRING **value )
+{
+    if (!value) return E_POINTER;
+    *value = NULL;
+    if (form_values.index) return E_BOUNDS;
+    *value = &form_values.pair_iface;
+    IKeyValuePair_HSTRING_HSTRING_AddRef( *value );
+    return S_OK;
+}
+static HRESULT WINAPI form_iterator_HasCurrent( IIterator_IKeyValuePair_HSTRING_HSTRING *iface, boolean *value )
+{ if (!value) return E_POINTER; *value = !form_values.index; return S_OK; }
+static HRESULT WINAPI form_iterator_MoveNext( IIterator_IKeyValuePair_HSTRING_HSTRING *iface, boolean *value )
+{ if (!value) return E_POINTER; form_values.index = 1; *value = FALSE; return S_OK; }
+static HRESULT WINAPI form_iterator_GetMany( IIterator_IKeyValuePair_HSTRING_HSTRING *iface,
+        UINT32 capacity, IKeyValuePair_HSTRING_HSTRING **value, UINT32 *actual )
+{ if (!actual) return E_POINTER; *actual = 0; return S_OK; }
+static const IIterator_IKeyValuePair_HSTRING_HSTRINGVtbl form_iterator_vtbl =
+{
+    (void *)form_values_qi, (void *)form_values_addref, (void *)form_values_release,
+    (void *)form_values_iids, (void *)form_values_name, (void *)form_values_trust,
+    form_iterator_Current, form_iterator_HasCurrent, form_iterator_MoveNext, form_iterator_GetMany,
+};
+
+static HRESULT WINAPI form_pair_get_Key( IKeyValuePair_HSTRING_HSTRING *iface, HSTRING *value )
+{ if (!value) return E_POINTER; return WindowsDuplicateString( form_values.key, value ); }
+static HRESULT WINAPI form_pair_get_Value( IKeyValuePair_HSTRING_HSTRING *iface, HSTRING *value )
+{ if (!value) return E_POINTER; return WindowsDuplicateString( form_values.value, value ); }
+static const IKeyValuePair_HSTRING_HSTRINGVtbl form_pair_vtbl =
+{
+    (void *)form_values_qi, (void *)form_values_addref, (void *)form_values_release,
+    (void *)form_values_iids, (void *)form_values_name, (void *)form_values_trust,
+    form_pair_get_Key, form_pair_get_Value,
+};
+
+static void test_HttpFormUrlEncodedContent(void)
+{
+    IHttpFormUrlEncodedContentFactory *factory = NULL;
+    IAsyncOperationWithProgress_HSTRING_UINT64 *operation = NULL;
+    IHttpContent *content = NULL;
+    HSTRING result = NULL;
+    HRESULT hr;
+
+    form_values.iterable_iface.lpVtbl = &form_iterable_vtbl;
+    form_values.iterator_iface.lpVtbl = &form_iterator_vtbl;
+    form_values.pair_iface.lpVtbl = &form_pair_vtbl;
+    WindowsCreateString( L"scope", 5, &form_values.key );
+    WindowsCreateString( L"a b&c", 5, &form_values.value );
+    hr = get_activation_interface( RuntimeClass_Windows_Web_Http_HttpFormUrlEncodedContent,
+            &IID_IHttpFormUrlEncodedContentFactory, (void **)&factory );
+    ok( hr == S_OK, "form factory failed %#lx.\n", hr );
+    if (SUCCEEDED(hr)) hr = IHttpFormUrlEncodedContentFactory_Create(
+            factory, &form_values.iterable_iface, &content );
+    ok( hr == S_OK, "form Create failed %#lx.\n", hr );
+    if (SUCCEEDED(hr)) hr = IHttpContent_ReadAsStringAsync( content, &operation );
+    ok( hr == S_OK, "form ReadAsStringAsync failed %#lx.\n", hr );
+    if (SUCCEEDED(hr)) hr = wait_string( operation, &result );
+    ok( hr == S_OK, "form read failed %#lx.\n", hr );
+    ok( result && !wcscmp( WindowsGetStringRawBuffer( result, NULL ), L"scope=a+b%26c" ),
+            "unexpected encoded form %s.\n", debugstr_hstring( result ) );
+    WindowsDeleteString( result );
+    if (operation) IAsyncOperationWithProgress_HSTRING_UINT64_Release( operation );
+    if (content) IHttpContent_Release( content );
+    if (factory) IHttpFormUrlEncodedContentFactory_Release( factory );
+    WindowsDeleteString( form_values.key );
+    WindowsDeleteString( form_values.value );
+    memset( &form_values, 0, sizeof(form_values) );
+}
+
+static void test_HttpClient_loopback(void)
+{
+    struct http_test_server server = {INVALID_SOCKET};
+    IHttpMediaTypeWithQualityHeaderValueCollection *accept = NULL;
+    IHttpProductInfoHeaderValueCollection *user_agent = NULL;
+    IHttpCredentialsHeaderValueFactory *credentials_factory = NULL;
+    IHttpCredentialsHeaderValue *credentials = NULL;
+    IHttpRequestHeaderCollection *default_headers = NULL, *request_headers = NULL;
+    IHttpRequestMessageFactory *request_factory = NULL;
+    IHttpStringContentFactory *content_factory = NULL;
+    IHttpMethodStatics *method_statics = NULL;
+    IHttpClient *client = NULL;
+    IHttpMethod *post = NULL;
+    IHttpRequestMessage *request = NULL;
+    IHttpResponseMessage *response = NULL;
+    IHttpContent *content = NULL, *response_content = NULL;
+    IAsyncOperationWithProgress_HttpResponseMessage_HttpProgress *response_operation = NULL;
+    IAsyncOperationWithProgress_HSTRING_UINT64 *string_operation = NULL;
+    IUriRuntimeClass *uri = NULL;
+    SOCKADDR_IN address = {0};
+    WSADATA wsadata;
+    HANDLE thread = NULL;
+    HSTRING string = NULL, result = NULL;
+    HttpStatusCode status;
+    boolean parsed, success;
+    WCHAR url[128];
+    int address_size = sizeof(address);
+    HRESULT hr;
+
+    hr = WSAStartup( MAKEWORD(2, 2), &wsadata );
+    ok( !hr, "WSAStartup failed %ld.\n", hr );
+    if (hr) return;
+    server.listener = socket( AF_INET, SOCK_STREAM, IPPROTO_TCP );
+    ok( server.listener != INVALID_SOCKET, "socket failed %d.\n", WSAGetLastError() );
+    if (server.listener == INVALID_SOCKET) goto done;
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
+    hr = bind( server.listener, (SOCKADDR *)&address, sizeof(address) );
+    ok( !hr, "bind failed %d.\n", WSAGetLastError() );
+    hr = listen( server.listener, 1 );
+    ok( !hr, "listen failed %d.\n", WSAGetLastError() );
+    hr = getsockname( server.listener, (SOCKADDR *)&address, &address_size );
+    ok( !hr, "getsockname failed %d.\n", WSAGetLastError() );
+    swprintf( url, ARRAY_SIZE(url), L"http://127.0.0.1:%u/azure?api=1", ntohs( address.sin_port ) );
+    thread = CreateThread( NULL, 0, http_test_server_proc, &server, 0, NULL );
+    ok( !!thread, "CreateThread failed %lu.\n", GetLastError() );
+
+    hr = activate_instance_interface( RuntimeClass_Windows_Web_Http_HttpClient,
+            &IID_IHttpClient, (void **)&client );
+    ok( hr == S_OK, "HttpClient activation failed %#lx.\n", hr );
+    hr = get_activation_interface( RuntimeClass_Windows_Web_Http_HttpMethod,
+            &IID_IHttpMethodStatics, (void **)&method_statics );
+    ok( hr == S_OK, "HttpMethod statics failed %#lx.\n", hr );
+    hr = get_activation_interface( RuntimeClass_Windows_Web_Http_HttpRequestMessage,
+            &IID_IHttpRequestMessageFactory, (void **)&request_factory );
+    ok( hr == S_OK, "HttpRequestMessage factory failed %#lx.\n", hr );
+    hr = get_activation_interface( RuntimeClass_Windows_Web_Http_HttpStringContent,
+            &IID_IHttpStringContentFactory, (void **)&content_factory );
+    ok( hr == S_OK, "HttpStringContent factory failed %#lx.\n", hr );
+    hr = get_activation_interface( RuntimeClass_Windows_Web_Http_Headers_HttpCredentialsHeaderValue,
+            &IID_IHttpCredentialsHeaderValueFactory, (void **)&credentials_factory );
+    ok( hr == S_OK, "credentials factory failed %#lx.\n", hr );
+    if (FAILED(hr) || !client || !method_statics || !request_factory || !content_factory) goto done;
+
+    hr = IHttpClient_get_DefaultRequestHeaders( client, &default_headers );
+    ok( hr == S_OK, "get_DefaultRequestHeaders failed %#lx.\n", hr );
+    hr = IHttpRequestHeaderCollection_get_UserAgent( default_headers, &user_agent );
+    ok( hr == S_OK, "get_UserAgent failed %#lx.\n", hr );
+    WindowsCreateString( L"OpenTerminal/1.0", 16, &string );
+    hr = IHttpProductInfoHeaderValueCollection_TryParseAdd( user_agent, string, &parsed );
+    ok( hr == S_OK && parsed, "UserAgent TryParseAdd failed %#lx, %u.\n", hr, parsed );
+    WindowsDeleteString( string ); string = NULL;
+
+    hr = IHttpMethodStatics_get_Post( method_statics, &post );
+    ok( hr == S_OK, "get_Post failed %#lx.\n", hr );
+    hr = create_uri( url, &uri );
+    ok( hr == S_OK, "create_uri failed %#lx.\n", hr );
+    hr = IHttpRequestMessageFactory_Create( request_factory, post, uri, &request );
+    ok( hr == S_OK, "request Create failed %#lx.\n", hr );
+    WindowsCreateString( L"{\"hello\":\"world\"}", 17, &string );
+    hr = IHttpStringContentFactory_CreateFromString( content_factory, string, &content );
+    ok( hr == S_OK, "string content Create failed %#lx.\n", hr );
+    WindowsDeleteString( string ); string = NULL;
+    hr = IHttpRequestMessage_put_Content( request, content );
+    ok( hr == S_OK, "put_Content failed %#lx.\n", hr );
+    hr = IHttpRequestMessage_get_Headers( request, &request_headers );
+    ok( hr == S_OK, "get_Headers failed %#lx.\n", hr );
+    hr = IHttpRequestHeaderCollection_get_Accept( request_headers, &accept );
+    ok( hr == S_OK, "get_Accept failed %#lx.\n", hr );
+    WindowsCreateString( L"application/json", 16, &string );
+    hr = IHttpMediaTypeWithQualityHeaderValueCollection_TryParseAdd( accept, string, &parsed );
+    ok( hr == S_OK && parsed, "Accept TryParseAdd failed %#lx, %u.\n", hr, parsed );
+    WindowsDeleteString( string ); string = NULL;
+    WindowsCreateString( L"Bearer", 6, &string );
+    {
+        HSTRING token;
+        WindowsCreateString( L"token-123", 9, &token );
+        hr = IHttpCredentialsHeaderValueFactory_CreateFromSchemeWithToken(
+                credentials_factory, string, token, &credentials );
+        WindowsDeleteString( token );
+    }
+    WindowsDeleteString( string ); string = NULL;
+    ok( hr == S_OK, "credentials Create failed %#lx.\n", hr );
+    hr = IHttpRequestHeaderCollection_put_Authorization( request_headers, credentials );
+    ok( hr == S_OK, "put_Authorization failed %#lx.\n", hr );
+
+    hr = IHttpClient_SendRequestAsync( client, request, &response_operation );
+    ok( hr == S_OK, "SendRequestAsync failed %#lx.\n", hr );
+    if (SUCCEEDED(hr)) hr = wait_response( response_operation, &response );
+    ok( hr == S_OK, "async request failed %#lx.\n", hr );
+    if (FAILED(hr)) goto done;
+    hr = IHttpResponseMessage_get_StatusCode( response, &status );
+    ok( hr == S_OK && status == HttpStatusCode_Created, "status %#x, hr %#lx.\n", status, hr );
+    hr = IHttpResponseMessage_get_IsSuccessStatusCode( response, &success );
+    ok( hr == S_OK && success, "success %u, hr %#lx.\n", success, hr );
+    hr = IHttpResponseMessage_get_Content( response, &response_content );
+    ok( hr == S_OK, "response get_Content failed %#lx.\n", hr );
+    hr = IHttpContent_ReadAsStringAsync( response_content, &string_operation );
+    ok( hr == S_OK, "ReadAsStringAsync failed %#lx.\n", hr );
+    if (SUCCEEDED(hr)) hr = wait_string( string_operation, &result );
+    ok( hr == S_OK, "read string failed %#lx.\n", hr );
+    ok( result && !wcscmp( WindowsGetStringRawBuffer( result, NULL ), L"{\"result\":\"wine\"}" ),
+            "unexpected body %s.\n", debugstr_hstring( result ) );
+
+    ok( WaitForSingleObject( thread, 5000 ) == WAIT_OBJECT_0, "server did not finish.\n" );
+    ok( strstr( server.request, "POST /azure?api=1 HTTP/1.1" ) != NULL,
+            "unexpected request %s.\n", server.request );
+    ok( strstr( server.request, "Authorization: Bearer token-123" ) != NULL,
+            "missing authorization in %s.\n", server.request );
+    ok( strstr( server.request, "Accept: application/json" ) != NULL,
+            "missing accept in %s.\n", server.request );
+    ok( strstr( server.request, "User-Agent: OpenTerminal/1.0" ) != NULL,
+            "missing user agent in %s.\n", server.request );
+    ok( strstr( server.request, "{\"hello\":\"world\"}" ) != NULL,
+            "missing body in %s.\n", server.request );
+
+done:
+    WindowsDeleteString( result );
+    WindowsDeleteString( string );
+    if (string_operation) IAsyncOperationWithProgress_HSTRING_UINT64_Release( string_operation );
+    if (response_operation) IAsyncOperationWithProgress_HttpResponseMessage_HttpProgress_Release( response_operation );
+    if (response_content) IHttpContent_Release( response_content );
+    if (response) IHttpResponseMessage_Release( response );
+    if (accept) IHttpMediaTypeWithQualityHeaderValueCollection_Release( accept );
+    if (request_headers) IHttpRequestHeaderCollection_Release( request_headers );
+    if (credentials) IHttpCredentialsHeaderValue_Release( credentials );
+    if (credentials_factory) IHttpCredentialsHeaderValueFactory_Release( credentials_factory );
+    if (content) IHttpContent_Release( content );
+    if (request) IHttpRequestMessage_Release( request );
+    if (uri) IUriRuntimeClass_Release( uri );
+    if (post) IHttpMethod_Release( post );
+    if (content_factory) IHttpStringContentFactory_Release( content_factory );
+    if (request_factory) IHttpRequestMessageFactory_Release( request_factory );
+    if (method_statics) IHttpMethodStatics_Release( method_statics );
+    if (user_agent) IHttpProductInfoHeaderValueCollection_Release( user_agent );
+    if (default_headers) IHttpRequestHeaderCollection_Release( default_headers );
+    if (client) IHttpClient_Release( client );
+    if (thread) CloseHandle( thread );
+    if (server.listener != INVALID_SOCKET) closesocket( server.listener );
+    WSACleanup();
+}
+
 START_TEST(web)
 {
     HRESULT hr;
@@ -852,6 +1267,8 @@ START_TEST(web)
     test_JsonArrayStatics();
     test_JsonObjectStatics();
     test_JsonValueStatics();
+    test_HttpFormUrlEncodedContent();
+    test_HttpClient_loopback();
 
     RoUninitialize();
 }

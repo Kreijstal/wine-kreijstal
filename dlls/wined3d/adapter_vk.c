@@ -368,6 +368,9 @@ static void get_physical_device_info(const struct wined3d_adapter_vk *adapter_vk
         if (VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties))
             VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties(physical_device,
                     &semaphore_info, &semaphore_properties));
+        TRACE("External semaphore query %p reported features %#x for handle type %#x.\n",
+                VK_CALL(vkGetPhysicalDeviceExternalSemaphoreProperties),
+                semaphore_properties.externalSemaphoreFeatures, semaphore_info.handleType);
         if (!(semaphore_properties.externalSemaphoreFeatures
                 & VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT)
                 || !(semaphore_properties.externalSemaphoreFeatures

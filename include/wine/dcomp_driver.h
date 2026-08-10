@@ -61,6 +61,12 @@ enum wine_dcomp_sync_type
 {
     /* Exported Vulkan timeline semaphore; sync_value is the publication value. */
     WINE_DCOMP_SYNC_TIMELINE = 1,
+    /* No sync object at all: the producer waited for its device to go idle on
+     * the host before the publication reached the server, so the buffer holds
+     * the finished contents by the time a consumer can see it.  This is what a
+     * driver that cannot export a shareable timeline semaphore falls back to;
+     * sync_resource and sync_value are zero. */
+    WINE_DCOMP_SYNC_HOST_IDLE = 2,
 };
 
 enum wine_dcomp_image_usage

@@ -1996,15 +1996,41 @@ HRESULT CDECL wined3d_texture_enable_sharing(struct wined3d_texture *texture)
     return S_OK;
 }
 
+struct wined3d_texture_import_shared_handle
+{
+    struct wined3d_texture *texture;
+    HANDLE handle;
+    HRESULT hr;
+};
+
+static void wined3d_texture_import_shared_handle_cs(void *object)
+{
+    struct wined3d_texture_import_shared_handle *request = object;
+
+    request->hr = request->texture->texture_ops->texture_import_shared_handle(
+            request->texture, request->handle);
+}
+
 HRESULT CDECL wined3d_texture_import_shared_handle(struct wined3d_texture *texture, HANDLE handle)
 {
+    struct wined3d_texture_import_shared_handle request;
+
     TRACE("texture %p, handle %p, flags %#x.\n", texture, handle, texture->flags);
     if (!handle || !(texture->flags & WINED3D_TEXTURE_SHARED)
             || !texture->texture_ops->texture_import_shared_handle)
         return E_INVALIDARG;
     if (texture->flags & WINED3D_TEXTURE_RGB_ALLOCATED)
         return WINED3DERR_INVALIDCALL;
-    return texture->texture_ops->texture_import_shared_handle(texture, handle);
+
+    /* The backing image has to be created from the imported allocation before
+     * anything can use the texture, and that needs a context. */
+    request.texture = texture;
+    request.handle = handle;
+    request.hr = E_FAIL;
+    wined3d_cs_init_object(texture->resource.device->cs,
+            wined3d_texture_import_shared_handle_cs, &request);
+    wined3d_cs_finish(texture->resource.device->cs, WINED3D_CS_QUEUE_DEFAULT);
+    return request.hr;
 }
 
 struct wined3d_texture_publish_shared

@@ -1123,6 +1123,8 @@ static HRESULT wined3d_texture_vk_export_shared_handle(struct wined3d_texture *t
 
 static HRESULT wined3d_texture_vk_import_shared_handle(struct wined3d_texture *texture, HANDLE handle)
 {
+    struct wined3d_texture_vk *texture_vk = wined3d_texture_vk(texture);
+    struct wined3d_context_vk *context_vk;
     unsigned int i;
     HANDLE retained;
 
@@ -1134,6 +1136,18 @@ static HRESULT wined3d_texture_vk_import_shared_handle(struct wined3d_texture *t
     if (texture->shared_handle)
         CloseHandle(texture->shared_handle);
     texture->shared_handle = retained;
+
+    /* Create the image on the imported allocation right away.  The texture is
+     * marked as containing valid contents below, which would otherwise keep
+     * wined3d_texture_load_location() from ever preparing it. */
+    context_vk = wined3d_context_vk(context_acquire(texture->resource.device, NULL, 0));
+    if (!wined3d_texture_vk_prepare_texture(texture_vk, context_vk))
+    {
+        WARN("Failed to create an image for imported texture %p.\n", texture);
+        context_release(&context_vk->c);
+        return E_FAIL;
+    }
+    context_release(&context_vk->c);
 
     /* The imported allocation already contains the producer's image contents.
      * Do not treat a freshly-created wrapper as discarded and initialize over it. */

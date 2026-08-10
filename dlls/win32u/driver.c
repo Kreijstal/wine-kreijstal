@@ -1542,8 +1542,13 @@ static BOOL dcomp_scene_items_valid( const struct wine_dcomp_scene *scene )
         if (has_front)
         {
             if (surface->resource_type != WINE_DCOMP_RESOURCE_WIN32_HANDLE
-                    || !surface->resource
-                    || surface->sync_resource_type != WINE_DCOMP_RESOURCE_WIN32_HANDLE
+                    || !surface->resource) return FALSE;
+            if (surface->sync_type == WINE_DCOMP_SYNC_HOST_IDLE)
+            {
+                if (surface->sync_resource || surface->sync_resource_type
+                        || surface->sync_value) return FALSE;
+            }
+            else if (surface->sync_resource_type != WINE_DCOMP_RESOURCE_WIN32_HANDLE
                     || !surface->sync_resource
                     || surface->sync_type != WINE_DCOMP_SYNC_TIMELINE
                     || !surface->sync_value) return FALSE;
@@ -1617,6 +1622,7 @@ BOOL __wine_dcomp_update( const struct wine_dcomp_scene *scene, UINT size )
                     wine_dbgstr_longlong(st.st_dev), wine_dbgstr_longlong(st.st_ino),
                     wine_dbgstr_longlong(st.st_size) );
         }
+        if (surfaces[i].sync_type == WINE_DCOMP_SYNC_HOST_IDLE) continue;
         publication_sync = d3dkmt_open_sync( 0,
                 (HANDLE)(UINT_PTR)surfaces[i].sync_resource );
         if (!publication_sync || (sync_fd = d3dkmt_object_get_fd( publication_sync )) < 0)

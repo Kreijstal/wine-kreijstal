@@ -1686,7 +1686,7 @@ static void fill_scene_surface(const struct dcomp_surface_snapshot *snapshot,
 
     surface->resource = (UINT_PTR)wine_server_ptr_handle(snapshot->resource);
     surface->sync_resource = (UINT_PTR)wine_server_ptr_handle(snapshot->sync_resource);
-    surface->sync_value = snapshot->has_front ? 1 : 0;
+    surface->sync_value = snapshot->has_front && snapshot->sync_resource ? 1 : 0;
     surface->adapter_luid = ((UINT64)(UINT32)snapshot->adapter_luid.high_part << 32)
             | snapshot->adapter_luid.low_part;
     memcpy(surface->device_uuid, &snapshot->device_uuid0, sizeof(surface->device_uuid));
@@ -1695,8 +1695,13 @@ static void fill_scene_surface(const struct dcomp_surface_snapshot *snapshot,
     surface->format = snapshot->format;
     surface->alpha_mode = snapshot->alpha_mode;
     surface->resource_type = snapshot->has_front ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
-    surface->sync_resource_type = snapshot->has_front ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
-    surface->sync_type = snapshot->has_front ? WINE_DCOMP_SYNC_TIMELINE : 0;
+    surface->sync_resource_type = snapshot->has_front && snapshot->sync_resource
+            ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
+    if (!snapshot->has_front)
+        surface->sync_type = 0;
+    else
+        surface->sync_type = snapshot->sync_resource ? WINE_DCOMP_SYNC_TIMELINE
+                : WINE_DCOMP_SYNC_HOST_IDLE;
     surface->memory_type_index = snapshot->memory_type_index;
     surface->image_usage = WINE_DCOMP_IMAGE_TRANSFER_SRC | WINE_DCOMP_IMAGE_TRANSFER_DST
             | WINE_DCOMP_IMAGE_SAMPLED | WINE_DCOMP_IMAGE_COLOR_ATTACHMENT;

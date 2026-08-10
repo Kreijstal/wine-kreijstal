@@ -1181,7 +1181,10 @@ DECL_HANDLER(dcomp_update_surface)
         }
         memset( syncs, 0, info->buffer_count * sizeof(*syncs) );
     }
-    else if (!(sync = dcomp_get_sync( info->sync_resource ))) goto done;
+    /* A producer whose device cannot export a shareable timeline semaphore
+     * publishes without a sync object; it has waited for its own device to go
+     * idle before getting here instead. */
+    else if (info->sync_resource && !(sync = dcomp_get_sync( info->sync_resource ))) goto done;
 
     if (!(binding = (struct dcomp_binding *)get_handle_obj( current->process, req->binding,
             0, &dcomp_binding_ops ))) goto done;
@@ -1300,8 +1303,8 @@ DECL_HANDLER(dcomp_query_surface)
     else if ((reply->resource = alloc_handle_no_access_check( current->process,
             binding->buffers[binding->front_buffer], STANDARD_RIGHTS_READ, 0 )))
     {
-        if (!binding->syncs[binding->front_buffer]
-                || !(reply->sync_resource = alloc_handle_no_access_check( current->process,
+        if (binding->syncs[binding->front_buffer]
+                && !(reply->sync_resource = alloc_handle_no_access_check( current->process,
                 binding->syncs[binding->front_buffer], STANDARD_RIGHTS_READ, 0 )))
         {
             close_handle( current->process, reply->resource );
@@ -1390,10 +1393,10 @@ DECL_HANDLER(dcomp_subscribe_surfaces)
                 current->process, binding->buffers[binding->front_buffer],
                 STANDARD_RIGHTS_READ, 0 )))
             goto failed;
-        if (binding->has_front && (!binding->syncs[binding->front_buffer]
-                || !(snapshots[i].sync_resource = alloc_handle_no_access_check(
+        if (binding->has_front && binding->syncs[binding->front_buffer]
+                && !(snapshots[i].sync_resource = alloc_handle_no_access_check(
                 current->process, binding->syncs[binding->front_buffer],
-                STANDARD_RIGHTS_READ, 0))))
+                STANDARD_RIGHTS_READ, 0)))
             goto failed;
         if (binding->has_front && !(snapshots[i].lease = dcomp_create_buffer_lease(
                 binding, binding->front_buffer)))

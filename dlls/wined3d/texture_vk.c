@@ -1192,6 +1192,7 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
     VkSemaphore semaphore = VK_NULL_HANDLE;
     const uint64_t signal_value = 1;
     const struct wined3d_vk_info *vk_info;
+    BOOL host_idle = FALSE;
     unsigned int i;
     VkResult vr;
 
@@ -1206,12 +1207,20 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
             texture->resource.bind_flags, texture->swapchain,
             wined3d_format_is_typeless(texture->resource.format),
             texture_vk->image.memory_type_index);
+    /* Without an exportable timeline semaphore there is nothing a consumer
+     * could be handed to wait on.  The image is still released to the external
+     * queue family, and the device is waited on from the CPU below; since the
+     * publication only becomes visible to a consumer after this call returns,
+     * that host ordering takes the place of the semaphore. */
     if (!vk_info->supported[WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32]
             || !vk_info->timeline_semaphore
             || !VK_CALL(vkGetSemaphoreWin32HandleKHR))
     {
-        context_release(&context_vk->c);
-        return E_NOTIMPL;
+        WARN("Exportable timeline semaphores are unavailable (extension %u, timeline %u, "
+                "export %p), publishing without a sync object.\n",
+                vk_info->supported[WINED3D_VK_KHR_EXTERNAL_SEMAPHORE_WIN32],
+                vk_info->timeline_semaphore, VK_CALL(vkGetSemaphoreWin32HandleKHR));
+        host_idle = TRUE;
     }
     if (!wined3d_texture_vk_prepare_texture(texture_vk, context_vk))
     {
@@ -1238,7 +1247,7 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
         context_release(&context_vk->c);
         return E_FAIL;
     }
-    if ((vr = VK_CALL(vkCreateSemaphore(device_vk->vk_device, &semaphore_info,
+    if (!host_idle && (vr = VK_CALL(vkCreateSemaphore(device_vk->vk_device, &semaphore_info,
             NULL, &semaphore))) != VK_SUCCESS)
     {
         context_release(&context_vk->c);
@@ -1256,16 +1265,20 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
             device_vk->graphics_queue.vk_queue_family_index, VK_QUEUE_FAMILY_EXTERNAL,
             texture_vk->image.vk_image, &range);
     texture_vk->external_ownership = true;
-    wined3d_context_vk_submit_command_buffer_timeline(context_vk, 1, &semaphore,
-            &signal_value);
+    if (host_idle)
+        wined3d_context_vk_submit_command_buffer(context_vk, 0, NULL, NULL, 0, NULL);
+    else
+        wined3d_context_vk_submit_command_buffer_timeline(context_vk, 1, &semaphore,
+                &signal_value);
     vr = VK_CALL(vkDeviceWaitIdle(device_vk->vk_device));
-    if (vr == VK_SUCCESS)
+    if (vr == VK_SUCCESS && !host_idle)
     {
         get_handle_info.semaphore = semaphore;
         vr = VK_CALL(vkGetSemaphoreWin32HandleKHR(device_vk->vk_device,
                 &get_handle_info, sync_handle));
     }
-    VK_CALL(vkDestroySemaphore(device_vk->vk_device, semaphore, NULL));
+    if (semaphore)
+        VK_CALL(vkDestroySemaphore(device_vk->vk_device, semaphore, NULL));
     context_release(&context_vk->c);
     return vr == VK_SUCCESS ? S_OK : E_FAIL;
 }

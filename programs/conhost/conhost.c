@@ -2912,28 +2912,56 @@ static BOOL is_key_message( const MSG *msg )
            msg->message == WM_KEYUP   || msg->message == WM_SYSKEYUP;
 }
 
+/* The signal handle is supplied by the process that created the pseudo console and
+ * may be a synchronous handle, in which case a read on it blocks the calling thread.
+ * It is therefore serviced by a dedicated thread; the thread exits when the pipe is
+ * closed, which is what tells the main loop to quit. */
+static DWORD WINAPI signal_thread( void *param )
+{
+    HANDLE signal = param, event;
+    unsigned short signal_id;
+    IO_STATUS_BLOCK io;
+    NTSTATUS status;
+
+    if (!(event = CreateEventW( NULL, TRUE, FALSE, NULL ))) return 1;
+
+    for (;;)
+    {
+        status = NtReadFile( signal, event, NULL, NULL, &io, &signal_id, sizeof(signal_id), NULL, NULL );
+        if (status == STATUS_PENDING)
+        {
+            WaitForSingleObject( event, INFINITE );
+            status = io.Status;
+        }
+        if (status || io.Information != sizeof(signal_id)) break;
+        FIXME( "unimplemented signal %x\n", signal_id );
+    }
+
+    CloseHandle( event );
+    TRACE( "signal pipe closed\n" );
+    return 0;
+}
+
 static int main_loop( struct console *console, HANDLE signal )
 {
-    HANDLE signal_event = NULL;
+    HANDLE signal_thread_handle = NULL;
     HANDLE wait_handles[3];
     unsigned int wait_cnt = 0;
-    unsigned short signal_id;
-    IO_STATUS_BLOCK signal_io;
+    unsigned int signal_idx = 0;
     NTSTATUS status;
     DWORD res;
 
-    if (signal)
-    {
-        if (!(signal_event = CreateEventW( NULL, TRUE, FALSE, NULL ))) return 1;
-        status = NtReadFile( signal, signal_event, NULL, NULL, &signal_io, &signal_id,
-                             sizeof(signal_id), NULL, NULL );
-        if (status && status != STATUS_PENDING) return 1;
-    }
+    if (signal && !(signal_thread_handle = CreateThread( NULL, 0, signal_thread, signal, 0, NULL )))
+        return 1;
 
     if (!alloc_ioctl_buffer( 4096 )) return 1;
 
     wait_handles[wait_cnt++] = console->server;
-    if (signal) wait_handles[wait_cnt++] = signal_event;
+    if (signal_thread_handle)
+    {
+        signal_idx = wait_cnt;
+        wait_handles[wait_cnt++] = signal_thread_handle;
+    }
     if (console->input_thread) wait_handles[wait_cnt++] = console->input_thread;
 
     for (;;)
@@ -2959,31 +2987,18 @@ static int main_loop( struct console *console, HANDLE signal )
             continue;
         }
 
-        switch (res)
+        if (res == WAIT_OBJECT_0)
         {
-        case WAIT_OBJECT_0:
             EnterCriticalSection( &console_section );
             status = process_console_ioctls( console );
             LeaveCriticalSection( &console_section );
             if (status) return 0;
-            break;
-
-        case WAIT_OBJECT_0 + 1:
-            if (signal_io.Status || signal_io.Information != sizeof(signal_id))
-            {
-                TRACE( "signaled quit\n" );
-                return 0;
-            }
-            FIXME( "unimplemented signal %x\n", signal_id );
-            status = NtReadFile( signal, signal_event, NULL, NULL, &signal_io, &signal_id,
-                                 sizeof(signal_id), NULL, NULL );
-            if (status && status != STATUS_PENDING) return 1;
-            break;
-
-        default:
-            TRACE( "wait failed, quit\n");
-            return 0;
+            continue;
         }
+
+        if (signal_idx && res == WAIT_OBJECT_0 + signal_idx) TRACE( "signaled quit\n" );
+        else TRACE( "wait failed, quit\n" );
+        return 0;
     }
 
     return 0;

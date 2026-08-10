@@ -2277,7 +2277,6 @@ HRESULT WINAPI CreatePseudoConsole( COORD size, HANDLE input, HANDLE output, DWO
     struct pseudo_console *pseudo_console;
     HANDLE tty_input = NULL, tty_output;
     HANDLE signal = NULL;
-    WCHAR pipe_name[64];
 
     TRACE( "(%u,%u) %p %p %lx %p\n", size.X, size.Y, input, output, flags, ret );
 
@@ -2285,16 +2284,12 @@ HRESULT WINAPI CreatePseudoConsole( COORD size, HANDLE input, HANDLE output, DWO
 
     if (!(pseudo_console = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*pseudo_console) ))) return E_OUTOFMEMORY;
 
-    swprintf( pipe_name, ARRAY_SIZE(pipe_name),  L"\\\\.\\pipe\\wine_pty_signal_pipe%x",
-              GetCurrentThreadId() );
-    signal = CreateNamedPipeW( pipe_name, PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED, PIPE_TYPE_BYTE,
-                               PIPE_UNLIMITED_INSTANCES, 4096, 4096, NMPWAIT_USE_DEFAULT_WAIT, &inherit_attr );
-    if (signal == INVALID_HANDLE_VALUE)
+    if (!CreatePipe( &signal, &pseudo_console->signal, &inherit_attr, 0 ))
     {
         HeapFree( GetProcessHeap(), 0, pseudo_console );
         return HRESULT_FROM_WIN32( GetLastError() );
     }
-    pseudo_console->signal = CreateFileW( pipe_name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
+    SetHandleInformation( pseudo_console->signal, HANDLE_FLAG_INHERIT, 0 );
     if (pseudo_console->signal != INVALID_HANDLE_VALUE &&
         DuplicateHandle( GetCurrentProcess(), input,  GetCurrentProcess(), &tty_input, 0, TRUE,  DUPLICATE_SAME_ACCESS) &&
         DuplicateHandle( GetCurrentProcess(), output, GetCurrentProcess(), &tty_output, 0, TRUE, DUPLICATE_SAME_ACCESS))

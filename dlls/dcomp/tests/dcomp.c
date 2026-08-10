@@ -1344,8 +1344,11 @@ static void test_surface_handle_import(void)
     IDCompositionDesktopDevice *desktop_device;
     IDCompositionDevice2 *device2;
     IDCompositionDevice *device;
+    IDCompositionTarget *target = NULL;
+    IDCompositionVisual *visual = NULL;
     IUnknown *surface, *identity, *retained_surface = NULL;
     HANDLE handle, event;
+    HWND hwnd = NULL;
     HRESULT hr;
     ULONG ref;
 
@@ -1423,8 +1426,38 @@ static void test_surface_handle_import(void)
         }
     }
 
+    hwnd = CreateWindowExW(0, L"static", L"unbound dcomp surface",
+            WS_POPUP, 0, 0, 32, 32, NULL, NULL, NULL, NULL);
+    ok(!!hwnd, "Failed to create unbound-surface target window, error %lu.\n",
+            GetLastError());
+    if (hwnd && retained_surface)
+    {
+        hr = IDCompositionDevice_CreateTargetForHwnd(device, hwnd, FALSE, &target);
+        ok(hr == S_OK, "CreateTargetForHwnd failed, hr %#lx.\n", hr);
+        if (SUCCEEDED(hr))
+        {
+            hr = IDCompositionDevice_CreateVisual(device, &visual);
+            ok(hr == S_OK, "CreateVisual failed, hr %#lx.\n", hr);
+        }
+        if (visual)
+        {
+            hr = IDCompositionVisual_SetContent(visual, retained_surface);
+            ok(hr == S_OK, "SetContent for unbound surface failed, hr %#lx.\n", hr);
+        }
+        if (target && visual)
+        {
+            hr = IDCompositionTarget_SetRoot(target, visual);
+            ok(hr == S_OK, "SetRoot for unbound surface failed, hr %#lx.\n", hr);
+        }
+    }
+
     hr = IDCompositionDevice_Commit(device);
-    ok(hr == S_OK, "Commit returned hr %#lx.\n", hr);
+    ok(hr == S_OK, "Commit with unbound imported surface returned hr %#lx.\n", hr);
+
+    if (target) IDCompositionTarget_SetRoot(target, NULL);
+    if (visual) IDCompositionVisual_Release(visual);
+    if (target) IDCompositionTarget_Release(target);
+    if (hwnd) DestroyWindow(hwnd);
 
     ref = IDCompositionDesktopDevice_Release(desktop_device);
     ok(ref == 1, "Device has unexpected refcount %lu.\n", ref);

@@ -771,7 +771,19 @@ typedef enum _D3DKMT_ESCAPETYPE
     /* Wine-specific escape codes */
     D3DKMT_ESCAPE_UPDATE_RESOURCE_WINE = 0x80000000,
     D3DKMT_ESCAPE_SET_PRESENT_RECT_WINE = 0x80000001,
+    D3DKMT_ESCAPE_SHARED_RESOURCE_RUNTIME_DATA_WINE = 0x80000002,
 } D3DKMT_ESCAPETYPE;
+
+/* Private driver data for D3DKMT_ESCAPE_SHARED_RESOURCE_RUNTIME_DATA_WINE.  It
+ * reads or writes the runtime data of the shared resource an NT handle refers
+ * to, without requiring a D3DKMT device.  The runtime data follows the header,
+ * and the escape private driver data size covers both. */
+typedef struct _D3DKMT_SHARED_RESOURCE_RUNTIME_DATA_WINE
+{
+    UINT64 handle;    /* NT handle of the shared resource */
+    UINT   write;     /* write the runtime data instead of reading it */
+    UINT   data_size; /* size of the runtime data, updated on read */
+} D3DKMT_SHARED_RESOURCE_RUNTIME_DATA_WINE;
 
 typedef struct _D3DKMT_ESCAPE
 {

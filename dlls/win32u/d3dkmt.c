@@ -36,27 +36,11 @@
 #include <d3d11.h>
 #include <d3d12.h>
 
+#include "wine/d3dkmt_desc.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(d3dkmt);
 
 /* D3DKMT runtime descriptors */
-
-struct d3dkmt_dxgi_desc
-{
-    UINT                        size;
-    UINT                        version;
-    UINT                        width;
-    UINT                        height;
-    DXGI_FORMAT                 format;
-    UINT                        unknown_0;
-    UINT                        unknown_1;
-    UINT                        keyed_mutex;
-    D3DKMT_HANDLE               mutex_handle;
-    D3DKMT_HANDLE               sync_handle;
-    UINT                        nt_shared;
-    UINT                        unknown_2;
-    UINT                        unknown_3;
-    UINT                        unknown_4;
-};
 
 struct d3dkmt_d3d9_desc
 {
@@ -94,23 +78,6 @@ struct d3dkmt_d3d9_desc
 };
 
 C_ASSERT( sizeof(struct d3dkmt_d3d9_desc) == 0x58 );
-
-struct d3dkmt_d3d11_desc
-{
-    struct d3dkmt_dxgi_desc     dxgi;
-    D3D11_RESOURCE_DIMENSION    dimension;
-    union
-    {
-        D3D10_BUFFER_DESC       d3d10_buf;
-        D3D10_TEXTURE1D_DESC    d3d10_1d;
-        D3D10_TEXTURE2D_DESC    d3d10_2d;
-        D3D10_TEXTURE3D_DESC    d3d10_3d;
-        D3D11_BUFFER_DESC       d3d11_buf;
-        D3D11_TEXTURE1D_DESC    d3d11_1d;
-        D3D11_TEXTURE2D_DESC    d3d11_2d;
-        D3D11_TEXTURE3D_DESC    d3d11_3d;
-    };
-};
 
 C_ASSERT( sizeof(struct d3dkmt_d3d11_desc) == 0x68 );
 
@@ -561,6 +528,42 @@ NTSTATUS WINAPI NtGdiDdDDIEscape( const D3DKMT_ESCAPE *desc )
         release_win_ptr( win );
 
         return STATUS_SUCCESS;
+    }
+
+    case D3DKMT_ESCAPE_SHARED_RESOURCE_RUNTIME_DATA_WINE:
+    {
+        D3DKMT_SHARED_RESOURCE_RUNTIME_DATA_WINE *params = desc->pPrivateDriverData;
+        struct d3dkmt_resource *resource;
+        UINT runtime_size;
+        NTSTATUS status;
+        HANDLE handle;
+        void *data;
+
+        if (!params || desc->PrivateDriverDataSize < sizeof(*params)) return STATUS_INVALID_PARAMETER;
+        if (params->data_size > desc->PrivateDriverDataSize - sizeof(*params)) return STATUS_INVALID_PARAMETER;
+        data = params + 1;
+        handle = (HANDLE)(UINT_PTR)params->handle;
+
+        TRACE( "D3DKMT_ESCAPE_SHARED_RESOURCE_RUNTIME_DATA_WINE handle %p, write %u, data_size %#x\n",
+               handle, params->write, params->data_size );
+
+        if ((status = d3dkmt_object_query( D3DKMT_RESOURCE, 0, handle, &runtime_size ))) return status;
+        if (!params->write && runtime_size > params->data_size)
+        {
+            params->data_size = runtime_size;
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+
+        if ((status = d3dkmt_object_alloc( sizeof(*resource), D3DKMT_RESOURCE, (void **)&resource ))) return status;
+        if (!(status = d3dkmt_object_open( &resource->obj, 0, handle,
+                                           params->write || !runtime_size ? NULL : data, &runtime_size )))
+        {
+            if (params->write) status = d3dkmt_object_update( &resource->obj, data, params->data_size );
+            else params->data_size = runtime_size;
+        }
+
+        d3dkmt_object_free( &resource->obj );
+        return status;
     }
 
     default:

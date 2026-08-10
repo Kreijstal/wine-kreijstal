@@ -1118,6 +1118,7 @@ SOURCES = \
 	wine/asm.h \
 	wine/atsvc.idl \
 	wine/condrv.h \
+	wine/d3dkmt_desc.h \
 	wine/dcetypes.idl \
 	wine/debug.h \
 	wine/dcomp_driver.h \

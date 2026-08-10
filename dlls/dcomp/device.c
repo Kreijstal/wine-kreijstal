@@ -1672,6 +1672,46 @@ static void close_commit_snapshots(struct dcomp_surface_snapshot *snapshots, UIN
     }
 }
 
+static void fill_scene_surface(const struct dcomp_surface_snapshot *snapshot,
+        struct wine_dcomp_surface *surface)
+{
+    memset(surface, 0, sizeof(*surface));
+    surface->generation = snapshot->generation;
+
+    /* A composition surface handle may be placed in a committed visual
+     * before a producer binds a swapchain to it.  Preserve that graph as
+     * detached content; the retained subscription will publish the real
+     * descriptor/front later. */
+    if (!snapshot->width) return;
+
+    surface->resource = (UINT_PTR)wine_server_ptr_handle(snapshot->resource);
+    surface->sync_resource = (UINT_PTR)wine_server_ptr_handle(snapshot->sync_resource);
+    surface->sync_value = snapshot->has_front ? 1 : 0;
+    surface->adapter_luid = ((UINT64)(UINT32)snapshot->adapter_luid.high_part << 32)
+            | snapshot->adapter_luid.low_part;
+    memcpy(surface->device_uuid, &snapshot->device_uuid0, sizeof(surface->device_uuid));
+    surface->width = snapshot->width;
+    surface->height = snapshot->height;
+    surface->format = snapshot->format;
+    surface->alpha_mode = snapshot->alpha_mode;
+    surface->resource_type = snapshot->has_front ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
+    surface->sync_resource_type = snapshot->has_front ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
+    surface->sync_type = snapshot->has_front ? WINE_DCOMP_SYNC_TIMELINE : 0;
+    surface->memory_type_index = snapshot->memory_type_index;
+    surface->image_usage = WINE_DCOMP_IMAGE_TRANSFER_SRC | WINE_DCOMP_IMAGE_TRANSFER_DST
+            | WINE_DCOMP_IMAGE_SAMPLED | WINE_DCOMP_IMAGE_COLOR_ATTACHMENT;
+    surface->image_flags = WINE_DCOMP_IMAGE_ALIAS | WINE_DCOMP_IMAGE_OPTIMAL_TILING
+            | WINE_DCOMP_IMAGE_DEDICATED_ALLOCATION;
+    surface->sample_count = 1;
+    surface->mip_levels = 1;
+    surface->array_layers = 1;
+    surface->front_buffer = snapshot->front_buffer;
+    surface->buffer_count = snapshot->buffer_count;
+    if (snapshot->has_front) surface->flags |= WINE_DCOMP_SURFACE_HAS_FRONT;
+    surface->damage_right = snapshot->width;
+    surface->damage_bottom = snapshot->height;
+}
+
 static HRESULT build_commit_scene(struct composition_device *device,
         const struct commit_graph *graph, const struct dcomp_surface_snapshot *snapshots,
         struct wine_dcomp_scene **out)
@@ -1734,43 +1774,7 @@ static HRESULT build_commit_scene(struct composition_device *device,
         memcpy(visuals[i].clip, &visual->clip, sizeof(visuals[i].clip));
     }
     for (i = 0; i < graph->surface_count; ++i)
-    {
-        const struct dcomp_surface_snapshot *snapshot = &snapshots[i];
-
-        surfaces[i].resource = (UINT_PTR)wine_server_ptr_handle(snapshot->resource);
-        surfaces[i].sync_resource =
-                (UINT_PTR)wine_server_ptr_handle(snapshot->sync_resource);
-        surfaces[i].sync_value = 1;
-        surfaces[i].adapter_luid = ((UINT64)(UINT32)snapshot->adapter_luid.high_part << 32)
-                | snapshot->adapter_luid.low_part;
-        memcpy(surfaces[i].device_uuid, &snapshot->device_uuid0,
-                sizeof(surfaces[i].device_uuid));
-        surfaces[i].width = snapshot->width;
-        surfaces[i].height = snapshot->height;
-        surfaces[i].format = snapshot->format;
-        surfaces[i].alpha_mode = snapshot->alpha_mode;
-        surfaces[i].resource_type = snapshot->has_front
-                ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
-        surfaces[i].sync_resource_type = snapshot->has_front
-                ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
-        surfaces[i].sync_type = snapshot->has_front ? WINE_DCOMP_SYNC_TIMELINE : 0;
-        surfaces[i].memory_type_index = snapshot->memory_type_index;
-        surfaces[i].image_usage = WINE_DCOMP_IMAGE_TRANSFER_SRC
-                | WINE_DCOMP_IMAGE_TRANSFER_DST | WINE_DCOMP_IMAGE_SAMPLED
-                | WINE_DCOMP_IMAGE_COLOR_ATTACHMENT;
-        surfaces[i].image_flags = WINE_DCOMP_IMAGE_ALIAS
-                | WINE_DCOMP_IMAGE_OPTIMAL_TILING
-                | WINE_DCOMP_IMAGE_DEDICATED_ALLOCATION;
-        surfaces[i].sample_count = 1;
-        surfaces[i].mip_levels = 1;
-        surfaces[i].array_layers = 1;
-        surfaces[i].front_buffer = snapshot->front_buffer;
-        surfaces[i].buffer_count = snapshot->buffer_count;
-        surfaces[i].generation = snapshot->generation;
-        if (snapshot->has_front) surfaces[i].flags |= WINE_DCOMP_SURFACE_HAS_FRONT;
-        surfaces[i].damage_right = snapshot->width;
-        surfaces[i].damage_bottom = snapshot->height;
-    }
+        fill_scene_surface(snapshots + i, surfaces + i);
     *out = scene;
     return S_OK;
 }
@@ -1779,7 +1783,6 @@ static HRESULT build_surface_update(struct composition_device *device,
         const struct wine_dcomp_scene *committed,
         const struct dcomp_surface_snapshot *snapshots, struct wine_dcomp_scene **out)
 {
-    const struct wine_dcomp_surface *old_surfaces;
     struct wine_dcomp_surface *surfaces;
     struct wine_dcomp_scene *scene;
     size_t surface_offset, size;
@@ -1797,45 +1800,9 @@ static HRESULT build_surface_update(struct composition_device *device,
     scene->visual_offset = surface_offset;
     scene->surface_count = committed->surface_count;
     scene->surface_offset = surface_offset;
-    old_surfaces = (const void *)((const char *)committed + committed->surface_offset);
     surfaces = (void *)((char *)scene + surface_offset);
-    memcpy(surfaces, old_surfaces, committed->surface_count * sizeof(*surfaces));
     for (i = 0; i < committed->surface_count; ++i)
-    {
-        const struct dcomp_surface_snapshot *snapshot = &snapshots[i];
-
-        if (!snapshot->has_front && !snapshot->width)
-        {
-            memset( surfaces + i, 0, sizeof(*surfaces) );
-            surfaces[i].generation = snapshot->generation;
-            continue;
-        }
-        surfaces[i].resource = (UINT_PTR)wine_server_ptr_handle(snapshot->resource);
-        surfaces[i].sync_resource =
-                (UINT_PTR)wine_server_ptr_handle(snapshot->sync_resource);
-        surfaces[i].sync_value = 1;
-        surfaces[i].width = snapshot->width;
-        surfaces[i].height = snapshot->height;
-        surfaces[i].format = snapshot->format;
-        surfaces[i].alpha_mode = snapshot->alpha_mode;
-        surfaces[i].adapter_luid = ((UINT64)(UINT32)snapshot->adapter_luid.high_part << 32)
-                | snapshot->adapter_luid.low_part;
-        memcpy(surfaces[i].device_uuid, &snapshot->device_uuid0,
-                sizeof(surfaces[i].device_uuid));
-        surfaces[i].resource_type = snapshot->has_front
-                ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
-        surfaces[i].sync_resource_type = snapshot->has_front
-                ? WINE_DCOMP_RESOURCE_WIN32_HANDLE : 0;
-        surfaces[i].sync_type = snapshot->has_front ? WINE_DCOMP_SYNC_TIMELINE : 0;
-        surfaces[i].memory_type_index = snapshot->memory_type_index;
-        surfaces[i].front_buffer = snapshot->front_buffer;
-        surfaces[i].buffer_count = snapshot->buffer_count;
-        surfaces[i].generation = snapshot->generation;
-        surfaces[i].flags = snapshot->has_front ? WINE_DCOMP_SURFACE_HAS_FRONT : 0;
-        surfaces[i].damage_left = surfaces[i].damage_top = 0;
-        surfaces[i].damage_right = snapshot->width;
-        surfaces[i].damage_bottom = snapshot->height;
-    }
+        fill_scene_surface(snapshots + i, surfaces + i);
     *out = scene;
     return S_OK;
 }

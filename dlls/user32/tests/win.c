@@ -9611,6 +9611,177 @@ static void test_layered_child_window(void)
     DeleteObject( brush );
 }
 
+/* Win32 lets a host fill a layered window with UpdateLayeredWindow before the
+ * window is ever shown, and showing it afterwards has to display exactly that
+ * content -- ULW presentation is synchronous, it is not a repaint request that
+ * the application has to pump messages for. Both halves of the published frame
+ * are checked: an opaque source pixel must reach the screen exactly, and an
+ * alpha-zero source pixel must leave the parent's pixel showing. */
+static void test_layered_child_window_show( BOOL create_visible )
+{
+    static const COLORREF parent_color = RGB( 0x21, 0x43, 0x65 );
+    static const COLORREF child_color = RGB( 0x20, 0x40, 0xc0 );
+    static const char parent_class[] = "LayeredChildShowParentClass";
+    BITMAPINFO info = {{sizeof(BITMAPINFOHEADER), 40, -20, 1, 32, BI_RGB}};
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    WNDCLASSA class = {0};
+    POINT src = {0, 0}, dst = {0, 0};
+    SIZE size = {40, 20};
+    HBITMAP bitmap, old_bitmap;
+    HBRUSH brush;
+    DWORD *bits;
+    HDC mem_dc, dc;
+    HWND parent, child;
+    COLORREF shown_opaque, shown_transparent, opaque, transparent;
+    BOOL ret;
+    ATOM atom;
+    unsigned int x, y;
+
+    winetest_push_context( create_visible ? "visible child" : "hidden child" );
+
+    if (!pUpdateLayeredWindow)
+    {
+        win_skip( "layered windows not supported\n" );
+        winetest_pop_context();
+        return;
+    }
+
+    brush = CreateSolidBrush( parent_color );
+    ok( !!brush, "Failed to create parent brush, error %lu\n", GetLastError() );
+    if (!brush)
+    {
+        winetest_pop_context();
+        return;
+    }
+
+    class.lpfnWndProc = DefWindowProcA;
+    class.hInstance = GetModuleHandleA( 0 );
+    class.hbrBackground = brush;
+    class.lpszClassName = parent_class;
+    atom = RegisterClassA( &class );
+    ok( !!atom, "Failed to register parent class, error %lu\n", GetLastError() );
+    if (!atom)
+    {
+        DeleteObject( brush );
+        winetest_pop_context();
+        return;
+    }
+
+    flush_events( TRUE );
+
+    parent = CreateWindowExA( WS_EX_TOPMOST, parent_class, "layered child show parent",
+                              WS_POPUP | WS_VISIBLE, 320, 260, 40, 20,
+                              0, 0, 0, NULL );
+    ok( !!parent, "Failed to create parent, error %lu\n", GetLastError() );
+    if (!parent)
+    {
+        UnregisterClassA( parent_class, class.hInstance );
+        DeleteObject( brush );
+        winetest_pop_context();
+        return;
+    }
+    ret = InvalidateRect( parent, NULL, TRUE );
+    ok( ret, "InvalidateRect failed, error %lu\n", GetLastError() );
+    ret = UpdateWindow( parent );
+    ok( ret, "UpdateWindow failed, error %lu\n", GetLastError() );
+    flush_events( TRUE );
+
+    child = CreateWindowExA( WS_EX_LAYERED, "MainWindowClass", "layered child",
+                             WS_CHILD | (create_visible ? WS_VISIBLE : 0), 0, 0, 40, 20,
+                             parent, 0, 0, NULL );
+    ok( !!child, "Failed to create layered child, error %lu\n", GetLastError() );
+    if (!child)
+    {
+        DestroyWindow( parent );
+        UnregisterClassA( parent_class, class.hInstance );
+        DeleteObject( brush );
+        winetest_pop_context();
+        return;
+    }
+    ok( !(GetWindowLongA( child, GWL_STYLE ) & WS_VISIBLE) == !create_visible,
+        "Unexpected initial child visibility, style %#lx\n", GetWindowLongA( child, GWL_STYLE ) );
+
+    mem_dc = CreateCompatibleDC( 0 );
+    bitmap = CreateDIBSection( mem_dc, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 );
+    ok( !!mem_dc && !!bitmap, "Failed to create source DIB, error %lu\n", GetLastError() );
+    if (!mem_dc || !bitmap)
+    {
+        if (bitmap) DeleteObject( bitmap );
+        if (mem_dc) DeleteDC( mem_dc );
+        DestroyWindow( child );
+        DestroyWindow( parent );
+        UnregisterClassA( parent_class, class.hInstance );
+        DeleteObject( brush );
+        winetest_pop_context();
+        return;
+    }
+    old_bitmap = SelectObject( mem_dc, bitmap );
+
+    for (y = 0; y < 20; ++y)
+        for (x = 0; x < 40; ++x)
+            bits[y * 40 + x] = x < 20 ? 0xff2040c0 : 0;
+
+    ret = ClientToScreen( parent, &dst );
+    ok( ret, "ClientToScreen failed, error %lu\n", GetLastError() );
+
+    /* publish the frame, possibly while the child is still unmapped */
+    ret = pUpdateLayeredWindow( child, 0, &dst, &size, mem_dc, &src, 0, &blend, ULW_ALPHA );
+    ok( ret, "UpdateLayeredWindow failed, error %lu\n", GetLastError() );
+
+    /* Read the result before dispatching any message: showing a layered window
+     * presents its stored content, it does not merely schedule a repaint. */
+    ShowWindow( child, SW_SHOW );
+    GdiFlush();
+    dc = GetDC( 0 );
+    shown_opaque = GetPixel( dc, dst.x + 5, dst.y + 5 );
+    shown_transparent = GetPixel( dc, dst.x + 30, dst.y + 5 );
+    ReleaseDC( 0, dc );
+
+    ok( !!(GetWindowLongA( child, GWL_STYLE ) & WS_VISIBLE),
+        "Child is not visible after ShowWindow, style %#lx\n", GetWindowLongA( child, GWL_STYLE ) );
+
+    ok( shown_opaque == child_color,
+        "Expected opaque pixel %#lx right after ShowWindow, got %#lx\n",
+        child_color, shown_opaque );
+    if (create_visible)
+    {
+        /* A child that was already mapped when the frame was published was first
+         * drawn opaque over the parent and only then reshaped, so recovering the
+         * parent's pixel needs a repaint of the parent that Wine only performs
+         * once the exposure is dispatched. */
+        todo_wine
+        ok( shown_transparent == parent_color,
+            "Expected transparent pixel to reveal parent %#lx right after ShowWindow, got %#lx\n",
+            parent_color, shown_transparent );
+    }
+    else
+    {
+        ok( shown_transparent == parent_color,
+            "Expected transparent pixel to reveal parent %#lx right after ShowWindow, got %#lx\n",
+            parent_color, shown_transparent );
+    }
+
+    /* and it still has to hold once everything settled */
+    flush_events( TRUE );
+    dc = GetDC( 0 );
+    opaque = GetPixel( dc, dst.x + 5, dst.y + 5 );
+    transparent = GetPixel( dc, dst.x + 30, dst.y + 5 );
+    ReleaseDC( 0, dc );
+    ok( opaque == child_color, "Expected settled opaque pixel %#lx, got %#lx\n",
+        child_color, opaque );
+    ok( transparent == parent_color, "Expected settled transparent pixel %#lx, got %#lx\n",
+        parent_color, transparent );
+
+    SelectObject( mem_dc, old_bitmap );
+    DeleteObject( bitmap );
+    DeleteDC( mem_dc );
+    DestroyWindow( child );
+    DestroyWindow( parent );
+    UnregisterClassA( parent_class, class.hInstance );
+    DeleteObject( brush );
+    winetest_pop_context();
+}
+
 static MONITORINFO mi;
 
 static LRESULT CALLBACK fullscreen_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -14856,6 +15027,8 @@ START_TEST(win)
     test_Expose();
     test_layered_window();
     test_layered_child_window();
+    test_layered_child_window_show( TRUE );
+    test_layered_child_window_show( FALSE );
 
     test_SetForegroundWindow(hwndMain);
     test_handles( hwndMain );

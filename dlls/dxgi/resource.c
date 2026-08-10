@@ -19,6 +19,9 @@
 
 #include "dxgi_private.h"
 
+#include "d3d11.h"
+#include "wine/d3dkmt_desc.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(dxgi);
 
 /* Inner IUnknown methods */
@@ -499,13 +502,105 @@ static HRESULT STDMETHODCALLTYPE dxgi_resource_CreateSubresourceSurface(IDXGIRes
     return S_OK;
 }
 
+/* Attach the runtime description of a shared resource to the D3DKMT object the
+ * exported NT handle refers to, so that the runtime opening the handle can
+ * recreate a matching resource. */
+static HRESULT dxgi_resource_set_shared_desc(HANDLE handle, const struct d3dkmt_d3d11_desc *desc)
+{
+    struct
+    {
+        D3DKMT_SHARED_RESOURCE_RUNTIME_DATA_WINE params;
+        struct d3dkmt_d3d11_desc desc;
+    } data;
+    D3DKMT_ESCAPE escape = {0};
+    NTSTATUS status;
+
+    memset(&data, 0, sizeof(data));
+    data.params.handle = (UINT_PTR)handle;
+    data.params.write = TRUE;
+    data.params.data_size = sizeof(data.desc);
+    data.desc = *desc;
+
+    escape.Type = D3DKMT_ESCAPE_SHARED_RESOURCE_RUNTIME_DATA_WINE;
+    escape.pPrivateDriverData = &data;
+    escape.PrivateDriverDataSize = sizeof(data);
+    if ((status = D3DKMTEscape(&escape)))
+    {
+        WARN("Failed to store the description of shared resource %p, status %#lx.\n", handle, status);
+        return HRESULT_FROM_NT(status);
+    }
+
+    return S_OK;
+}
+
 static HRESULT STDMETHODCALLTYPE dxgi_resource_CreateSharedHandle(IDXGIResource1 *iface,
         const SECURITY_ATTRIBUTES *attributes, DWORD access, const WCHAR *name, HANDLE *handle)
 {
-    FIXME("iface %p, attributes %p, access %#lx, name %s, handle %p stub!\n", iface, attributes,
-            access, wine_dbgstr_w(name), handle);
+    struct dxgi_resource *resource = impl_from_IDXGIResource1(iface);
+    struct d3dkmt_d3d11_desc shared_desc;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    struct wined3d_texture *texture;
+    unsigned int memory_type_index;
+    ID3D11Texture2D *texture2d;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, attributes %p, access %#lx, name %s, handle %p.\n", iface, attributes,
+            access, debugstr_w(name), handle);
+
+    if (!handle)
+        return E_INVALIDARG;
+    *handle = NULL;
+
+    if (attributes)
+        FIXME("Ignoring security attributes %p.\n", attributes);
+    if (name)
+        FIXME("Ignoring name %s.\n", debugstr_w(name));
+
+    if (FAILED(hr = IUnknown_QueryInterface(resource->outer_unknown,
+            &IID_ID3D11Texture2D, (void **)&texture2d)))
+    {
+        FIXME("Sharing resource %p is not supported.\n", iface);
+        return hr;
+    }
+    ID3D11Texture2D_GetDesc(texture2d, &texture_desc);
+    ID3D11Texture2D_Release(texture2d);
+
+    /* IDXGIResource::GetSharedHandle() handles resources shared through a
+     * global D3DKMT handle. */
+    if (!(texture_desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_NTHANDLE))
+    {
+        WARN("Resource %p was not created with D3D11_RESOURCE_MISC_SHARED_NTHANDLE.\n", iface);
+        return E_INVALIDARG;
+    }
+
+    texture = wined3d_texture_from_resource(resource->wined3d_resource);
+    wined3d_mutex_lock();
+    hr = wined3d_texture_export_shared_handle(texture, handle, &memory_type_index);
+    wined3d_mutex_unlock();
+    if (FAILED(hr))
+    {
+        WARN("Failed to export texture %p, hr %#lx.\n", texture, hr);
+        return hr;
+    }
+
+    memset(&shared_desc, 0, sizeof(shared_desc));
+    shared_desc.dxgi.size = sizeof(shared_desc);
+    shared_desc.dxgi.version = 4;
+    shared_desc.dxgi.width = texture_desc.Width;
+    shared_desc.dxgi.height = texture_desc.Height;
+    shared_desc.dxgi.format = texture_desc.Format;
+    shared_desc.dxgi.keyed_mutex = !!(texture_desc.MiscFlags & D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX);
+    shared_desc.dxgi.nt_shared = 1;
+    shared_desc.dimension = D3D11_RESOURCE_DIMENSION_TEXTURE2D;
+    shared_desc.d3d11_2d = texture_desc;
+
+    if (FAILED(hr = dxgi_resource_set_shared_desc(*handle, &shared_desc)))
+    {
+        CloseHandle(*handle);
+        *handle = NULL;
+    }
+
+    return hr;
 }
 
 static const struct IDXGIResource1Vtbl dxgi_resource_vtbl =

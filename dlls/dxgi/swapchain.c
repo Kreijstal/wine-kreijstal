@@ -324,7 +324,7 @@ static HRESULT STDMETHODCALLTYPE d3d11_swapchain_GetDevice(IDXGISwapChain4 *ifac
 /* IDXGISwapChain1 methods */
 
 static HRESULT d3d11_swapchain_present(struct d3d11_swapchain *swapchain,
-        unsigned int sync_interval, unsigned int flags)
+        unsigned int sync_interval, unsigned int flags, const RECT *dirty_rect)
 {
     HRESULT hr;
 
@@ -345,7 +345,8 @@ static HRESULT d3d11_swapchain_present(struct d3d11_swapchain *swapchain,
         return S_OK;
     }
 
-    if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain, NULL, NULL, NULL, sync_interval, 0)))
+    if (SUCCEEDED(hr = wined3d_swapchain_present(swapchain->wined3d_swapchain,
+            dirty_rect, dirty_rect, NULL, sync_interval, 0)))
         InterlockedIncrement(&swapchain->present_count);
     return hr;
 }
@@ -356,7 +357,7 @@ static HRESULT STDMETHODCALLTYPE DECLSPEC_HOTPATCH d3d11_swapchain_Present(IDXGI
 
     TRACE("iface %p, sync_interval %u, flags %#x.\n", iface, sync_interval, flags);
 
-    return d3d11_swapchain_present(swapchain, sync_interval, flags);
+    return d3d11_swapchain_present(swapchain, sync_interval, flags, NULL);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d11_swapchain_GetBuffer(IDXGISwapChain4 *iface,
@@ -745,14 +746,23 @@ static HRESULT STDMETHODCALLTYPE d3d11_swapchain_Present1(IDXGISwapChain4 *iface
         UINT sync_interval, UINT flags, const DXGI_PRESENT_PARAMETERS *present_parameters)
 {
     struct d3d11_swapchain *swapchain = d3d11_swapchain_from_IDXGISwapChain4(iface);
+    const RECT *dirty_rect = NULL;
 
     TRACE("iface %p, sync_interval %u, flags %#x, present_parameters %p.\n",
             iface, sync_interval, flags, present_parameters);
 
-    if (present_parameters)
-        FIXME("Ignored present parameters %p.\n", present_parameters);
+    /* A single dirty rect with no scrolling maps directly onto a wined3d
+     * present region; anything more elaborate is still ignored. */
+    if (present_parameters && present_parameters->DirtyRectsCount == 1
+            && !present_parameters->pScrollRect && !present_parameters->pScrollOffset)
+        dirty_rect = &present_parameters->pDirtyRects[0];
+    else if (present_parameters && (present_parameters->DirtyRectsCount
+            || present_parameters->pScrollRect || present_parameters->pScrollOffset))
+        FIXME("Ignored present parameters %p: dirty %u, scroll_rect %p, scroll_offset %p.\n",
+                present_parameters, present_parameters->DirtyRectsCount,
+                present_parameters->pScrollRect, present_parameters->pScrollOffset);
 
-    return d3d11_swapchain_present(swapchain, sync_interval, flags);
+    return d3d11_swapchain_present(swapchain, sync_interval, flags, dirty_rect);
 }
 
 static BOOL STDMETHODCALLTYPE d3d11_swapchain_IsTemporaryMonoSupported(IDXGISwapChain4 *iface)

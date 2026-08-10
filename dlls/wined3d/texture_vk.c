@@ -1192,6 +1192,7 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
     VkSemaphore semaphore = VK_NULL_HANDLE;
     const uint64_t signal_value = 1;
     const struct wined3d_vk_info *vk_info;
+    unsigned int i;
     VkResult vr;
 
     *sync_handle = NULL;
@@ -1212,8 +1213,27 @@ static HRESULT wined3d_texture_vk_publish_shared(struct wined3d_texture *texture
         context_release(&context_vk->c);
         return E_NOTIMPL;
     }
-    if (!wined3d_texture_vk_prepare_texture(texture_vk, context_vk)
-            || !(command_buffer = wined3d_context_vk_get_command_buffer(context_vk)))
+    if (!wined3d_texture_vk_prepare_texture(texture_vk, context_vk))
+    {
+        context_release(&context_vk->c);
+        return E_FAIL;
+    }
+    /* A full-surface clear only records the clear colour and leaves the image
+     * itself untouched until something reads the texture back through wined3d.
+     * A consumer of the shared allocation never goes through wined3d, so the
+     * contents have to be in the image before the buffer is handed over. */
+    for (i = 0; i < texture->level_count * texture->layer_count; ++i)
+    {
+        if (!wined3d_texture_load_location(texture, i, &context_vk->c,
+                WINED3D_LOCATION_TEXTURE_RGB))
+        {
+            WARN("Failed to load the image contents of texture %p, sub-resource %u.\n",
+                    texture, i);
+            context_release(&context_vk->c);
+            return E_FAIL;
+        }
+    }
+    if (!(command_buffer = wined3d_context_vk_get_command_buffer(context_vk)))
     {
         context_release(&context_vk->c);
         return E_FAIL;

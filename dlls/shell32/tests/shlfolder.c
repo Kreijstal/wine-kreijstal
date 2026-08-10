@@ -2054,6 +2054,14 @@ static void test_SHGetFolderPathA(void)
             ok( !lstrcmpiA( path_key, path_x86 ), "paths differ '%s' != '%s'\n", path_key, path_x86 );
         }
         else ok( !is_win64 && !is_wow64, "ProgramFilesDir (x86) should exist on 64-bit setup\n" );
+
+        count = sizeof(path_key);
+        if (!RegQueryValueExA( key, "ProgramW6432Dir", NULL, &type, (BYTE *)path_key, &count ))
+        {
+            ok( is_win64 || is_wow64, "ProgramW6432Dir exists on 32-bit setup\n" );
+            ok( !lstrcmpiA( path_key, path ), "paths differ '%s' != '%s'\n", path_key, path );
+        }
+        else ok( !is_win64 && !is_wow64, "ProgramW6432Dir should exist on 64-bit setup\n" );
         RegCloseKey( key );
     }
 
@@ -2089,6 +2097,15 @@ static void test_SHGetFolderPathA(void)
             ok( !lstrcmpiA( path_key, path_x86 ), "paths differ '%s' != '%s'\n", path_key, path_x86 );
         }
         else ok( !is_win64 && !is_wow64, "CommonFilesDir (x86) should exist on 64-bit setup\n" );
+
+        count = sizeof(path_key);
+        if (!RegQueryValueExA( key, "CommonW6432Dir", NULL, &type, (BYTE *)path_key, &count ))
+        {
+            ok( is_win64 || is_wow64, "CommonW6432Dir exists on 32-bit setup\n" );
+            ok( !lstrcmpiA( path_key, path ), "paths differ '%s' != '%s'\n", path_key, path );
+        }
+        else ok( !is_win64 && !is_wow64, "CommonW6432Dir should exist on 64-bit setup\n" );
+        RegCloseKey( key );
     }
 }
 

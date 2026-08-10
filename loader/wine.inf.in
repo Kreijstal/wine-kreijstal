@@ -390,6 +390,8 @@ HKLM,%CurrentVersionNT%\Winlogon,"Shell",,"explorer.exe"
 [CurrentVersionWow64.ntamd64]
 HKLM,%CurrentVersion%,"ProgramFilesDir (x86)",,"%16426%"
 HKLM,%CurrentVersion%,"CommonFilesDir (x86)",,"%16428%"
+HKLM,%CurrentVersion%,"ProgramW6432Dir",,"%16422%"
+HKLM,%CurrentVersion%,"CommonW6432Dir",,"%16427%"
 HKLM,Software\Microsoft\Wow64\x86,,2,"wow64cpu.dll"
 
 [CurrentVersionWow64.ntarm64]
@@ -397,6 +399,8 @@ HKLM,%CurrentVersion%,"ProgramFilesDir (x86)",,"%16426%"
 HKLM,%CurrentVersion%,"CommonFilesDir (x86)",,"%16428%"
 HKLM,%CurrentVersion%,"ProgramFilesDir (Arm)",,"C:\Program Files (Arm)"
 HKLM,%CurrentVersion%,"CommonFilesDir (Arm)",,"C:\Program Files (Arm)\Common Files"
+HKLM,%CurrentVersion%,"ProgramW6432Dir",,"%16422%"
+HKLM,%CurrentVersion%,"CommonW6432Dir",,"%16427%"
 HKLM,Software\Microsoft\Wow64\amd64,,2,"xtajit64.dll"
 HKLM,Software\Microsoft\Wow64\arm,,2,"wowarmhw.dll"
 HKLM,Software\Microsoft\Wow64\x86,,2,"xtajit.dll"

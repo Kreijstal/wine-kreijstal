@@ -308,12 +308,17 @@ static BOOL validate_scene(const struct wine_dcomp_scene *scene, UINT size,
             if (surface->resource_type != WINE_DCOMP_RESOURCE_OPAQUE_FD
                     || surface->resource > INT_MAX
                     || fcntl((int)surface->resource, F_GETFD) == -1
-                    || surface->sync_resource_type != WINE_DCOMP_RESOURCE_OPAQUE_FD
+                    || !surface->adapter_luid) return FALSE;
+            if (surface->sync_type == WINE_DCOMP_SYNC_HOST_IDLE)
+            {
+                if (surface->sync_resource || surface->sync_resource_type
+                        || surface->sync_value) return FALSE;
+            }
+            else if (surface->sync_resource_type != WINE_DCOMP_RESOURCE_OPAQUE_FD
                     || surface->sync_resource > INT_MAX
                     || fcntl((int)surface->sync_resource, F_GETFD) == -1
                     || surface->sync_type != WINE_DCOMP_SYNC_TIMELINE
-                    || !surface->sync_value
-                    || !surface->adapter_luid) return FALSE;
+                    || !surface->sync_value) return FALSE;
         }
         else if (surface->resource || surface->resource_type || surface->sync_resource
                 || surface->sync_resource_type || surface->sync_type
@@ -623,7 +628,8 @@ static BOOL read_surface_with_context(struct vk_context *context,
                 import_fd, wine_dbgstr_longlong(st.st_dev), wine_dbgstr_longlong(st.st_ino),
                 wine_dbgstr_longlong(st.st_size));
     }
-    if ((sync_fd = fcntl((int)surface->sync_resource, F_DUPFD_CLOEXEC, 0)) == -1) goto done;
+    if (surface->sync_type != WINE_DCOMP_SYNC_HOST_IDLE
+            && (sync_fd = fcntl((int)surface->sync_resource, F_DUPFD_CLOEXEC, 0)) == -1) goto done;
 
     image_info.flags = vk_flags_from_dcomp(surface->image_flags);
     image_info.format = format;
@@ -664,22 +670,29 @@ static BOOL read_surface_with_context(struct vk_context *context,
     import_fd = -1; /* Vulkan consumed the fd on successful import. */
     if (context->p_vkBindImageMemory(context->device, image, image_memory, 0) != VK_SUCCESS) goto done;
 
-    vr = context->p_vkCreateSemaphore(context->device, &semaphore_info, NULL, &semaphore);
-    TRACE("vkCreateSemaphore returned %d for publication value %s\n", vr,
-            wine_dbgstr_longlong(surface->sync_value));
-    if (vr != VK_SUCCESS) goto done;
-    semaphore_import.semaphore = semaphore;
-    semaphore_import.fd = sync_fd;
-    vr = context->p_vkImportSemaphoreFdKHR(context->device, &semaphore_import);
-    TRACE("vkImportSemaphoreFdKHR returned %d\n", vr);
-    if (vr != VK_SUCCESS) goto done;
-    sync_fd = -1; /* Vulkan consumed the fd on successful import. */
-    if (context->p_vkGetSemaphoreCounterValue)
+    /* A producer that cannot export a shareable timeline semaphore publishes
+     * without one, having waited for its own device to go idle first.  There is
+     * then nothing to wait on here: the release barrier it recorded has already
+     * completed by the time the publication became visible. */
+    if (surface->sync_type != WINE_DCOMP_SYNC_HOST_IDLE)
     {
-        vr = context->p_vkGetSemaphoreCounterValue(context->device, semaphore, &counter);
-        TRACE("vkGetSemaphoreCounterValue returned %d, value %s\n", vr,
-                wine_dbgstr_longlong(counter));
+        vr = context->p_vkCreateSemaphore(context->device, &semaphore_info, NULL, &semaphore);
+        TRACE("vkCreateSemaphore returned %d for publication value %s\n", vr,
+                wine_dbgstr_longlong(surface->sync_value));
         if (vr != VK_SUCCESS) goto done;
+        semaphore_import.semaphore = semaphore;
+        semaphore_import.fd = sync_fd;
+        vr = context->p_vkImportSemaphoreFdKHR(context->device, &semaphore_import);
+        TRACE("vkImportSemaphoreFdKHR returned %d\n", vr);
+        if (vr != VK_SUCCESS) goto done;
+        sync_fd = -1; /* Vulkan consumed the fd on successful import. */
+        if (context->p_vkGetSemaphoreCounterValue)
+        {
+            vr = context->p_vkGetSemaphoreCounterValue(context->device, semaphore, &counter);
+            TRACE("vkGetSemaphoreCounterValue returned %d, value %s\n", vr,
+                    wine_dbgstr_longlong(counter));
+            if (vr != VK_SUCCESS) goto done;
+        }
     }
 
     buffer_info.size = pixel_count * sizeof(*pixels);
@@ -725,10 +738,13 @@ static BOOL read_surface_with_context(struct vk_context *context,
     context->p_vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1, &release);
     if (context->p_vkEndCommandBuffer(command_buffer) != VK_SUCCESS) goto done;
-    submit.pNext = &timeline_submit;
-    submit.waitSemaphoreCount = 1;
-    submit.pWaitSemaphores = &semaphore;
-    submit.pWaitDstStageMask = &wait_stage;
+    if (semaphore)
+    {
+        submit.pNext = &timeline_submit;
+        submit.waitSemaphoreCount = 1;
+        submit.pWaitSemaphores = &semaphore;
+        submit.pWaitDstStageMask = &wait_stage;
+    }
     submit.pCommandBuffers = &command_buffer;
     vr = context->p_vkQueueSubmit(context->queue, 1, &submit, VK_NULL_HANDLE);
     TRACE("vkQueueSubmit wait value %s returned %d\n",

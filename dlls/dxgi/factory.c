@@ -18,6 +18,7 @@
  */
 
 #include "dxgi_private.h"
+#include "dcomptypes.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dxgi);
 
@@ -399,13 +400,52 @@ static void STDMETHODCALLTYPE dxgi_factory_UnregisterOcclusionStatus(IWineDXGIFa
     FIXME("iface %p, cookie %#lx stub!\n", iface, cookie);
 }
 
+/* The composition surface backing this kind of swap chain is implicit: the
+ * caller never names one, and DirectComposition asks the swap chain for it
+ * when the visual content is set. dcomp.dll owns that object, and is resolved
+ * on demand rather than imported because it depends on dxgi itself. */
+static HRESULT dxgi_create_composition_surface(HANDLE *surface)
+{
+    static HRESULT (WINAPI *create_surface_handle)(DWORD, SECURITY_ATTRIBUTES *, HANDLE *);
+    HMODULE dcomp;
+
+    if (!create_surface_handle)
+    {
+        if (!(dcomp = LoadLibraryW(L"dcomp.dll")))
+        {
+            WARN("Failed to load dcomp.dll, error %lu.\n", GetLastError());
+            return DXGI_ERROR_UNSUPPORTED;
+        }
+        if (!(create_surface_handle = (void *)GetProcAddress(dcomp, "DCompositionCreateSurfaceHandle")))
+        {
+            WARN("dcomp.dll exports no DCompositionCreateSurfaceHandle.\n");
+            FreeLibrary(dcomp);
+            return DXGI_ERROR_UNSUPPORTED;
+        }
+    }
+
+    return create_surface_handle(COMPOSITIONOBJECT_ALL_ACCESS, NULL, surface);
+}
+
 static HRESULT STDMETHODCALLTYPE dxgi_factory_CreateSwapChainForComposition(IWineDXGIFactory *iface,
         IUnknown *device, const DXGI_SWAP_CHAIN_DESC1 *desc, IDXGIOutput *output, IDXGISwapChain1 **swapchain)
 {
-    FIXME("iface %p, device %p, desc %p, output %p, swapchain %p stub!\n",
+    HANDLE surface;
+    HRESULT hr;
+
+    TRACE("iface %p, device %p, desc %p, output %p, swapchain %p.\n",
             iface, device, desc, output, swapchain);
 
-    return E_NOTIMPL;
+    if (!swapchain) return DXGI_ERROR_INVALID_CALL;
+    *swapchain = NULL;
+
+    if (FAILED(hr = dxgi_create_composition_surface(&surface))) return hr;
+
+    /* The swap chain duplicates the handle it is given, so this one is only
+     * needed for the length of the call. */
+    hr = composition_swapchain_create(iface, device, surface, desc, output, swapchain);
+    CloseHandle(surface);
+    return hr;
 }
 
 static UINT STDMETHODCALLTYPE dxgi_factory_GetCreationFlags(IWineDXGIFactory *iface)

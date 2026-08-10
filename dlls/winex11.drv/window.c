@@ -3300,7 +3300,8 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     struct x11drv_win_data *data;
     UINT ex_style = NtUserGetWindowLongW( hwnd, GWL_EXSTYLE ), new_style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
     struct window_rects old_rects;
-    BOOL is_managed, was_fullscreen, activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
+    BOOL is_managed, was_fullscreen, was_withdrawn, present_retained_surface = FALSE;
+    BOOL activate = !(swp_flags & SWP_NOACTIVATE), fullscreen = !!(swp_flags & WINE_SWP_FULLSCREEN);
 
     x11drv_dcomp_window_changed( hwnd );
     if ((is_managed = is_window_managed( hwnd, swp_flags, fullscreen ))) make_owner_managed( hwnd );
@@ -3362,7 +3363,24 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
 #endif
     }
 
+    was_withdrawn = data->desired_state.wm_state == WithdrawnState;
     window_set_wm_state( data, get_desired_wm_state( new_style, new_rects ), activate );
+
+    /* An unmapped X11 window has no backing store, so anything the surface flushed to
+     * it while it was withdrawn was discarded by the X server. An ordinary window gets
+     * its pixels back from the WM_PAINT that showing it generates, but the pixels of a
+     * layered window exist only in its surface: UpdateLayeredWindow is allowed to
+     * publish them before the window is ever shown, and no repaint would produce them
+     * again. Re-present the retained surface as soon as the window is mapped rather
+     * than waiting for the Expose event to be dispatched, which requires the
+     * application to pump messages before its first frame becomes visible. */
+    if (was_withdrawn && data->desired_state.wm_state != WithdrawnState &&
+        surface && surface->alpha_mask)
+    {
+        XSync( data->display, False );  /* let the server map the window before we paint it */
+        present_retained_surface = TRUE;
+    }
+
     if (has_custom_nc_caption( new_rects, new_style )) set_wm_hints( data );
     if (!data->wm_state_serial && data->pending_state.wm_state != WithdrawnState)
     {
@@ -3377,6 +3395,7 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     release_win_data( data );
     x11drv_dcomp_window_changed( hwnd );
 
+    if (present_retained_surface) NtUserExposeWindowSurface( hwnd, 0, NULL );
     if (was_fullscreen) NtUserClipCursor( NULL );
 }
 

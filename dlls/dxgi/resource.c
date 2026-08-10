@@ -111,6 +111,15 @@ HRESULT dxgi_surface_create_shared_handle(IDXGISurface *iface, HANDLE *handle,
     return hr;
 }
 
+void dxgi_surface_copy(struct wined3d_device_context *context, IDXGISurface *dst_iface,
+        IDXGISurface *src_iface)
+{
+    struct dxgi_resource *dst = impl_from_IDXGISurface2((IDXGISurface2 *)dst_iface);
+    struct dxgi_resource *src = impl_from_IDXGISurface2((IDXGISurface2 *)src_iface);
+
+    wined3d_device_context_copy_resource(context, dst->wined3d_resource, src->wined3d_resource);
+}
+
 HRESULT dxgi_surface_publish_shared(IDXGISurface *iface, HANDLE *sync_handle)
 {
     struct dxgi_resource *resource = impl_from_IDXGISurface2((IDXGISurface2 *)iface);

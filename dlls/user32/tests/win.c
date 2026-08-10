@@ -9598,9 +9598,9 @@ static void test_layered_child_window(void)
     opaque = GetPixel( dc, dst.x + 5, dst.y + 5 );
     transparent = GetPixel( dc, dst.x + 30, dst.y + 5 );
     ReleaseDC( 0, dc );
-    todo_wine ok( opaque == child_color && transparent == parent_color,
-                  "Expected child %#lx and parent %#lx pixels, got %#lx and %#lx\n",
-                  child_color, parent_color, opaque, transparent );
+    ok( opaque == child_color && transparent == parent_color,
+        "Expected child %#lx and parent %#lx pixels, got %#lx and %#lx\n",
+        child_color, parent_color, opaque, transparent );
 
     SelectObject( mem_dc, old_bitmap );
     DeleteObject( bitmap );

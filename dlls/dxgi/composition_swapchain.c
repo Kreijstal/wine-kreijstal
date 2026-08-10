@@ -17,6 +17,17 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dxgi);
 
+/* The flip model promises the application that buffer 0 names one stable
+ * resource: a producer may build a render target view from it once and draw
+ * every later frame through that view, because the runtime renames the
+ * allocation behind buffer 0 on each Present.  Wine cannot rename an allocation
+ * under a wined3d texture, so the chain keeps one extra buffer that only the
+ * application ever draws into and never publishes it; the BufferCount buffers
+ * behind it are the publication ring the consumer leases from, and Present
+ * copies the application's buffer into the ring buffer it publishes.  The ring
+ * the server sees is exactly as large as the application asked for. */
+#define COMPOSITION_MAX_BUFFERS (DXGI_MAX_SWAP_CHAIN_BUFFERS + 1)
+
 struct composition_swapchain
 {
     IDXGISwapChain2 IDXGISwapChain2_iface;
@@ -27,9 +38,9 @@ struct composition_swapchain
     IWineDXGIFactory *factory;
     IDXGIDevice *device;
     IDXGIOutput *restrict_to_output;
-    IDXGISurface *buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    HANDLE shared_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    ULONG buffer_ref_baseline[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+    IDXGISurface *buffers[COMPOSITION_MAX_BUFFERS];
+    HANDLE shared_buffers[COMPOSITION_MAX_BUFFERS];
+    ULONG buffer_ref_baseline[COMPOSITION_MAX_BUFFERS];
     DXGI_SWAP_CHAIN_DESC1 desc;
     DXGI_RGBA background;
     DXGI_MATRIX_3X2_F matrix;
@@ -79,7 +90,7 @@ static HRESULT composition_surface_bind(HANDLE surface, const DXGI_SWAP_CHAIN_DE
     UINT i;
 
     for (i = 0; i < desc->BufferCount; ++i)
-        server_buffers[i] = wine_server_obj_handle(buffers[i]);
+        server_buffers[i] = wine_server_obj_handle(buffers[i + 1]);
     memset(&info, 0, sizeof(info));
     info.width = desc->Width;
     info.height = desc->Height;
@@ -128,7 +139,7 @@ static HRESULT composition_surface_update(HANDLE binding, const DXGI_SWAP_CHAIN_
 
     if (resize)
         for (i = 0; i < desc->BufferCount; ++i)
-            server_buffers[i] = wine_server_obj_handle(buffers[i]);
+            server_buffers[i] = wine_server_obj_handle(buffers[i + 1]);
     memset(&info, 0, sizeof(info));
     info.width = desc->Width;
     info.height = desc->Height;
@@ -184,15 +195,15 @@ static HRESULT composition_swapchain_create_buffers(struct composition_swapchain
     surface_desc.Height = desc->Height;
     surface_desc.Format = desc->Format;
     surface_desc.SampleDesc = desc->SampleDesc;
-    memset(buffers, 0, sizeof(*buffers) * DXGI_MAX_SWAP_CHAIN_BUFFERS);
-    memset(shared_buffers, 0, sizeof(*shared_buffers) * DXGI_MAX_SWAP_CHAIN_BUFFERS);
+    memset(buffers, 0, sizeof(*buffers) * COMPOSITION_MAX_BUFFERS);
+    memset(shared_buffers, 0, sizeof(*shared_buffers) * COMPOSITION_MAX_BUFFERS);
 
     if (FAILED(hr = IDXGIDevice_QueryInterface(swapchain->device, &IID_IWineDXGIDevice,
             (void **)&wine_device)))
         return hr;
 
     hr = IWineDXGIDevice_create_composition_surfaces(wine_device, &surface_desc,
-            desc->BufferCount, desc->BufferUsage | DXGI_USAGE_BACK_BUFFER
+            desc->BufferCount + 1, desc->BufferUsage | DXGI_USAGE_BACK_BUFFER
             | DXGI_USAGE_SHADER_INPUT, buffers);
     if (FAILED(hr))
     {
@@ -200,7 +211,7 @@ static HRESULT composition_swapchain_create_buffers(struct composition_swapchain
         return hr;
     }
 
-    for (i = 0; i < desc->BufferCount; ++i)
+    for (i = 0; i < desc->BufferCount + 1; ++i)
     {
         if (FAILED(hr = IWineDXGIDevice_create_composition_shared_handle(wine_device,
                 buffers[i], &shared_buffers[i], &index)))
@@ -217,14 +228,14 @@ static HRESULT composition_swapchain_create_buffers(struct composition_swapchain
         IDXGISurface_Release(buffers[i]);
     }
     IWineDXGIDevice_Release(wine_device);
-    if (i == desc->BufferCount) return S_OK;
+    if (i == desc->BufferCount + 1) return S_OK;
 
     while (i--)
     {
         CloseHandle(shared_buffers[i]);
         shared_buffers[i] = NULL;
     }
-    composition_swapchain_release_buffers(buffers, desc->BufferCount);
+    composition_swapchain_release_buffers(buffers, desc->BufferCount + 1);
     return hr;
 }
 
@@ -261,7 +272,7 @@ static BOOL composition_swapchain_buffers_referenced(struct composition_swapchai
     ULONG refcount;
     UINT i;
 
-    for (i = 0; i < swapchain->desc.BufferCount; ++i)
+    for (i = 0; i < swapchain->desc.BufferCount + 1; ++i)
     {
         refcount = IDXGISurface_AddRef(swapchain->buffers[i]);
         IDXGISurface_Release(swapchain->buffers[i]);
@@ -311,7 +322,7 @@ static ULONG STDMETHODCALLTYPE composition_swapchain_Release(IDXGISwapChain2 *if
         CloseHandle(swapchain->binding);
         CloseHandle(swapchain->available_event);
         CloseHandle(swapchain->surface);
-        composition_swapchain_release_buffers(swapchain->buffers, swapchain->desc.BufferCount);
+        composition_swapchain_release_buffers(swapchain->buffers, swapchain->desc.BufferCount + 1);
         composition_swapchain_release_shared_buffers(swapchain->shared_buffers,
                 swapchain->desc.BufferCount);
         if (swapchain->restrict_to_output) IDXGIOutput_Release(swapchain->restrict_to_output);
@@ -406,7 +417,7 @@ static HRESULT composition_swapchain_present(struct composition_swapchain *swapc
 {
     IWineDXGIDevice *wine_device;
     HANDLE sync_handle = NULL;
-    UINT next_buffer;
+    UINT next_buffer, published;
     HRESULT hr;
 
     if (sync_interval > 4 || flags & ~(DXGI_PRESENT_TEST | DXGI_PRESENT_DO_NOT_SEQUENCE
@@ -416,11 +427,15 @@ static HRESULT composition_swapchain_present(struct composition_swapchain *swapc
         return S_OK;
 
     EnterCriticalSection(&swapchain->lock);
+    published = swapchain->current_buffer + 1;
     if (SUCCEEDED(hr = IDXGIDevice_QueryInterface(swapchain->device,
             &IID_IWineDXGIDevice, (void **)&wine_device)))
     {
-        hr = IWineDXGIDevice_publish_composition_surface(wine_device,
-                swapchain->buffers[swapchain->current_buffer], &sync_handle);
+        hr = IWineDXGIDevice_copy_composition_surface(wine_device,
+                swapchain->buffers[published], swapchain->buffers[0]);
+        if (SUCCEEDED(hr))
+            hr = IWineDXGIDevice_publish_composition_surface(wine_device,
+                    swapchain->buffers[published], &sync_handle);
         IWineDXGIDevice_Release(wine_device);
     }
     if (SUCCEEDED(hr))
@@ -462,8 +477,7 @@ static HRESULT STDMETHODCALLTYPE composition_swapchain_GetBuffer(IDXGISwapChain2
     if (buffer_idx >= swapchain->desc.BufferCount)
         hr = DXGI_ERROR_INVALID_CALL;
     else
-        hr = IDXGISurface_QueryInterface(swapchain->buffers[
-                (swapchain->current_buffer + buffer_idx) % swapchain->desc.BufferCount], iid, surface);
+        hr = IDXGISurface_QueryInterface(swapchain->buffers[buffer_idx], iid, surface);
     LeaveCriticalSection(&swapchain->lock);
     return hr;
 }
@@ -521,11 +535,11 @@ static HRESULT STDMETHODCALLTYPE composition_swapchain_ResizeBuffers(IDXGISwapCh
         UINT buffer_count, UINT width, UINT height, DXGI_FORMAT format, UINT flags)
 {
     struct composition_swapchain *swapchain = impl_from_IDXGISwapChain2(iface);
-    IDXGISurface *new_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    IDXGISurface *old_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    HANDLE new_shared_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    HANDLE old_shared_buffers[DXGI_MAX_SWAP_CHAIN_BUFFERS];
-    ULONG new_baselines[DXGI_MAX_SWAP_CHAIN_BUFFERS];
+    IDXGISurface *new_buffers[COMPOSITION_MAX_BUFFERS];
+    IDXGISurface *old_buffers[COMPOSITION_MAX_BUFFERS];
+    HANDLE new_shared_buffers[COMPOSITION_MAX_BUFFERS];
+    HANDLE old_shared_buffers[COMPOSITION_MAX_BUFFERS];
+    ULONG new_baselines[COMPOSITION_MAX_BUFFERS];
     DXGI_SWAP_CHAIN_DESC1 desc;
     UINT new_memory_type_index, old_count;
     HRESULT hr;
@@ -561,8 +575,8 @@ static HRESULT STDMETHODCALLTYPE composition_swapchain_ResizeBuffers(IDXGISwapCh
             new_shared_buffers, NULL, swapchain->available_event, 0,
             &swapchain->current_buffer)))
     {
-        composition_swapchain_release_buffers(new_buffers, desc.BufferCount);
-        composition_swapchain_release_shared_buffers(new_shared_buffers, desc.BufferCount);
+        composition_swapchain_release_buffers(new_buffers, desc.BufferCount + 1);
+        composition_swapchain_release_shared_buffers(new_shared_buffers, desc.BufferCount + 1);
         LeaveCriticalSection(&swapchain->lock);
         return hr;
     }
@@ -579,8 +593,8 @@ static HRESULT STDMETHODCALLTYPE composition_swapchain_ResizeBuffers(IDXGISwapCh
     swapchain->source_height = desc.Height;
     LeaveCriticalSection(&swapchain->lock);
 
-    composition_swapchain_release_buffers(old_buffers, old_count);
-    composition_swapchain_release_shared_buffers(old_shared_buffers, old_count);
+    composition_swapchain_release_buffers(old_buffers, old_count + 1);
+    composition_swapchain_release_shared_buffers(old_shared_buffers, old_count + 1);
     return S_OK;
 }
 
@@ -937,7 +951,7 @@ fail:
     if (object->binding) CloseHandle(object->binding);
     if (object->available_event) CloseHandle(object->available_event);
     if (object->surface) CloseHandle(object->surface);
-    composition_swapchain_release_buffers(object->buffers, object->desc.BufferCount);
+    composition_swapchain_release_buffers(object->buffers, object->desc.BufferCount + 1);
     composition_swapchain_release_shared_buffers(object->shared_buffers,
             object->desc.BufferCount);
     if (object->latency_semaphore) CloseHandle(object->latency_semaphore);

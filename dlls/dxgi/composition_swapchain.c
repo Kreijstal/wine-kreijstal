@@ -324,7 +324,7 @@ static ULONG STDMETHODCALLTYPE composition_swapchain_Release(IDXGISwapChain2 *if
         CloseHandle(swapchain->surface);
         composition_swapchain_release_buffers(swapchain->buffers, swapchain->desc.BufferCount + 1);
         composition_swapchain_release_shared_buffers(swapchain->shared_buffers,
-                swapchain->desc.BufferCount);
+                swapchain->desc.BufferCount + 1);
         if (swapchain->restrict_to_output) IDXGIOutput_Release(swapchain->restrict_to_output);
         IDXGIDevice_Release(swapchain->device);
         IWineDXGIFactory_Release(swapchain->factory);
@@ -953,7 +953,7 @@ fail:
     if (object->surface) CloseHandle(object->surface);
     composition_swapchain_release_buffers(object->buffers, object->desc.BufferCount + 1);
     composition_swapchain_release_shared_buffers(object->shared_buffers,
-            object->desc.BufferCount);
+            object->desc.BufferCount + 1);
     if (object->latency_semaphore) CloseHandle(object->latency_semaphore);
     if (object->restrict_to_output) IDXGIOutput_Release(object->restrict_to_output);
     if (object->device) IDXGIDevice_Release(object->device);

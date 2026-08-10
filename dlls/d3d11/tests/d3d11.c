@@ -35330,6 +35330,140 @@ test_done:
     ok(!ref, "got %ld.\n", ref);
 }
 
+static void test_shared_resource_content(void)
+{
+    static const unsigned int bitmap_data[] =
+    {
+        0xff0000ff, 0xff00ff00, 0xffff0000, 0xffffffff,
+        0xffffff00, 0xffff00ff, 0xff00ffff, 0xff000000,
+        0xff7f7f7f, 0xff010203, 0xff040506, 0xff070809,
+        0xff0a0b0c, 0xff0d0e0f, 0xff101112, 0xff131415,
+    };
+    D3D11_SUBRESOURCE_DATA resource_data;
+    ID3D11Device *device, *shared_device;
+    ID3D11Texture2D *texture, *texture2;
+    ID3D11Device1 *device1, *shared1;
+    unsigned int updated_data[16];
+    ID3D11DeviceContext *context;
+    struct resource_readback rb;
+    D3D11_TEXTURE2D_DESC desc;
+    unsigned int i, j, colour;
+    IDXGIResource1 *resource;
+    HANDLE handle;
+    HRESULT hr;
+    ULONG ref;
+
+    if (!(device = create_device(NULL)))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+    if (!(shared_device = create_device(NULL)))
+    {
+        skip("Failed to create the second device.\n");
+        ID3D11Device_Release(device);
+        return;
+    }
+
+    hr = ID3D11Device_QueryInterface(device, &IID_ID3D11Device1, (void **)&device1);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    hr = ID3D11Device_QueryInterface(shared_device, &IID_ID3D11Device1, (void **)&shared1);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = 4;
+    desc.Height = 4;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+
+    resource_data.pSysMem = bitmap_data;
+    resource_data.SysMemPitch = 4 * sizeof(*bitmap_data);
+    resource_data.SysMemSlicePitch = 0;
+
+    hr = ID3D11Device_CreateTexture2D(device, &desc, &resource_data, &texture);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    hr = ID3D11Texture2D_QueryInterface(texture, &IID_IDXGIResource1, (void **)&resource);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+
+    handle = NULL;
+    hr = IDXGIResource1_CreateSharedHandle(resource, NULL, GENERIC_ALL | DXGI_SHARED_RESOURCE_READ
+            | DXGI_SHARED_RESOURCE_WRITE, NULL, &handle);
+    IDXGIResource1_Release(resource);
+    if (hr == E_NOTIMPL)
+    {
+        skip("Shared handle export is not implemented.\n");
+        goto done;
+    }
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    if (FAILED(hr))
+        goto done;
+    ok(!!handle, "Got a NULL handle.\n");
+
+    texture2 = NULL;
+    hr = ID3D11Device1_OpenSharedResource1(shared1, handle, &IID_ID3D11Texture2D, (void **)&texture2);
+    ok(hr == S_OK, "Got hr %#lx.\n", hr);
+    CloseHandle(handle);
+    if (FAILED(hr))
+        goto done;
+
+    memset(&desc, 0, sizeof(desc));
+    ID3D11Texture2D_GetDesc(texture2, &desc);
+    ok(desc.Width == 4, "Got width %u.\n", desc.Width);
+    ok(desc.Height == 4, "Got height %u.\n", desc.Height);
+    ok(desc.Format == DXGI_FORMAT_R8G8B8A8_UNORM, "Got format %#x.\n", desc.Format);
+
+    get_texture_readback(texture2, 0, &rb);
+    for (i = 0; i < 4; ++i)
+    {
+        for (j = 0; j < 4; ++j)
+        {
+            colour = get_readback_color(&rb, j, i, 0);
+            ok(colour == bitmap_data[i * 4 + j], "Got colour 0x%08x at (%u, %u), expected 0x%08x.\n",
+                    colour, j, i, bitmap_data[i * 4 + j]);
+        }
+    }
+    release_resource_readback(&rb);
+
+    /* Writes performed by the producing device after the resource was opened
+     * are visible on the consuming device as well. */
+    for (i = 0; i < ARRAY_SIZE(updated_data); ++i)
+        updated_data[i] = bitmap_data[i] ^ 0x00ffffff;
+    ID3D11Device_GetImmediateContext(device, &context);
+    ID3D11DeviceContext_UpdateSubresource(context, (ID3D11Resource *)texture, 0, NULL,
+            updated_data, 4 * sizeof(*updated_data), 0);
+    ID3D11DeviceContext_Flush(context);
+    ID3D11DeviceContext_Release(context);
+
+    get_texture_readback(texture2, 0, &rb);
+    for (i = 0; i < 4; ++i)
+    {
+        for (j = 0; j < 4; ++j)
+        {
+            colour = get_readback_color(&rb, j, i, 0);
+            ok(colour == updated_data[i * 4 + j], "Got colour 0x%08x at (%u, %u), expected 0x%08x.\n",
+                    colour, j, i, updated_data[i * 4 + j]);
+        }
+    }
+    release_resource_readback(&rb);
+
+    ID3D11Texture2D_Release(texture2);
+
+done:
+    ID3D11Texture2D_Release(texture);
+    ID3D11Device1_Release(shared1);
+    ID3D11Device1_Release(device1);
+    ref = ID3D11Device_Release(shared_device);
+    ok(!ref, "Device has %lu references left.\n", ref);
+    ref = ID3D11Device_Release(device);
+    ok(!ref, "Device has %lu references left.\n", ref);
+}
+
 static void test_keyed_mutex(void)
 {
     IDXGIKeyedMutex *keyed_mutex, *keyed_mutex2;
@@ -37788,6 +37922,7 @@ START_TEST(d3d11)
     queue_test(test_vertex_formats);
     queue_test(test_dxgi_resources);
     queue_for_each_feature_level(test_shared_resource);
+    queue_test(test_shared_resource_content);
     queue_test(test_keyed_mutex);
     queue_test(test_clear_during_render);
     queue_test(test_stencil_export);

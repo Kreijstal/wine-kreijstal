@@ -7038,11 +7038,11 @@ int get_system_metrics( int index )
     case SM_CXFRAME:
         get_entry( &entry_BORDER, 0, &ret );
         ret = max( ret, 1 );
-        return get_system_metrics( SM_CXDLGFRAME ) + ret;
+        return get_system_metrics( SM_CXDLGFRAME ) + ret + get_system_metrics( SM_CXPADDEDBORDER );
     case SM_CYFRAME:
         get_entry( &entry_BORDER, 0, &ret );
         ret = max( ret, 1 );
-        return get_system_metrics( SM_CYDLGFRAME ) + ret;
+        return get_system_metrics( SM_CYDLGFRAME ) + ret + get_system_metrics( SM_CXPADDEDBORDER );
     case SM_CXPADDEDBORDER:
         get_entry( &entry_PADDEDBORDERWIDTH, 0, &ret );
         return ret;
@@ -7247,11 +7247,13 @@ static int get_system_metrics_for_dpi( int index, unsigned int dpi )
     case SM_CXFRAME:
         get_entry_dpi( &entry_BORDER, 0, &ret, dpi );
         ret = max( ret, 1 );
-        return get_system_metrics_for_dpi( SM_CXDLGFRAME, dpi ) + ret;
+        return get_system_metrics_for_dpi( SM_CXDLGFRAME, dpi ) + ret +
+            get_system_metrics_for_dpi( SM_CXPADDEDBORDER, dpi );
     case SM_CYFRAME:
         get_entry_dpi( &entry_BORDER, 0, &ret, dpi );
         ret = max( ret, 1 );
-        return get_system_metrics_for_dpi( SM_CYDLGFRAME, dpi ) + ret;
+        return get_system_metrics_for_dpi( SM_CYDLGFRAME, dpi ) + ret +
+            get_system_metrics_for_dpi( SM_CXPADDEDBORDER, dpi );
     case SM_CXPADDEDBORDER:
         get_entry_dpi( &entry_PADDEDBORDERWIDTH, 0, &ret, dpi );
         return ret;

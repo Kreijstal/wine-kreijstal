@@ -152,8 +152,8 @@ static inline struct d3d_texture2d *impl_from_ID3D11Texture2D(ID3D11Texture2D *i
 }
 
 HRESULT d3d_texture2d_create(struct d3d_device *device, const D3D11_TEXTURE2D_DESC *desc,
-        struct wined3d_texture *wined3d_texture,
-        const D3D11_SUBRESOURCE_DATA *data, struct d3d_texture2d **out);
+        struct wined3d_texture *wined3d_texture, const D3D11_SUBRESOURCE_DATA *data,
+        HANDLE shared_handle, struct d3d_texture2d **out);
 struct d3d_texture2d *unsafe_impl_from_ID3D11Texture2D(ID3D11Texture2D *iface);
 struct d3d_texture2d *unsafe_impl_from_ID3D10Texture2D(ID3D10Texture2D *iface);
 

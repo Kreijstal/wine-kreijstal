@@ -962,7 +962,8 @@ static BOOL validate_texture2d_desc(const D3D11_TEXTURE2D_DESC *desc, D3D_FEATUR
 }
 
 HRESULT d3d_texture2d_create(struct d3d_device *device, const D3D11_TEXTURE2D_DESC *desc,
-        struct wined3d_texture *wined3d_texture, const D3D11_SUBRESOURCE_DATA *data, struct d3d_texture2d **out)
+        struct wined3d_texture *wined3d_texture, const D3D11_SUBRESOURCE_DATA *data,
+        HANDLE shared_handle, struct d3d_texture2d **out)
 {
     struct d3d_texture2d *texture;
     BOOL needs_surface;
@@ -1018,6 +1019,9 @@ HRESULT d3d_texture2d_create(struct d3d_device *device, const D3D11_TEXTURE2D_DE
             flags |= WINED3D_TEXTURE_CREATE_GET_DC;
         if (desc->MiscFlags & D3D11_RESOURCE_MISC_GENERATE_MIPS)
             flags |= WINED3D_TEXTURE_CREATE_GENERATE_MIPMAPS;
+        if (desc->MiscFlags & (D3D11_RESOURCE_MISC_SHARED
+                | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX | D3D11_RESOURCE_MISC_SHARED_NTHANDLE))
+            flags |= WINED3D_TEXTURE_CREATE_SHARED;
 
         if (FAILED(hr = wined3d_texture_create(device->wined3d_device, &wined3d_desc,
                 desc->ArraySize, levels, flags, (struct wined3d_sub_resource_data *)data,
@@ -1031,6 +1035,15 @@ HRESULT d3d_texture2d_create(struct d3d_device *device, const D3D11_TEXTURE2D_DE
             return hr;
         }
         texture->desc.MipLevels = levels;
+
+        if (shared_handle && FAILED(hr = wined3d_texture_import_shared_handle(texture->wined3d_texture,
+                shared_handle)))
+        {
+            WARN("Failed to import shared handle %p, hr %#lx.\n", shared_handle, hr);
+            wined3d_texture_decref(texture->wined3d_texture);
+            wined3d_mutex_unlock();
+            return hr;
+        }
     }
 
     needs_surface = desc->MipLevels == 1 && desc->ArraySize == 1;

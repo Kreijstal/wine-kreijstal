@@ -19,6 +19,8 @@
 
 #include "d3d11_private.h"
 
+#include "wine/d3dkmt_desc.h"
+
 WINE_DEFAULT_DEBUG_CHANNEL(d3d11);
 
 static BOOL d3d_array_reserve(void **elements, SIZE_T *capacity, SIZE_T count, SIZE_T size)
@@ -4077,7 +4079,7 @@ static HRESULT STDMETHODCALLTYPE d3d11_device_CreateTexture2D(ID3D11Device5 *ifa
 
     TRACE("iface %p, desc %p, data %p, texture %p.\n", iface, desc, data, texture);
 
-    if (FAILED(hr = d3d_texture2d_create(device, desc, NULL, data, &object)))
+    if (FAILED(hr = d3d_texture2d_create(device, desc, NULL, data, NULL, &object)))
         return hr;
 
     *texture = &object->ID3D11Texture2D_iface;
@@ -4594,8 +4596,19 @@ static HRESULT STDMETHODCALLTYPE d3d11_device_CreateDeferredContext(ID3D11Device
 static HRESULT STDMETHODCALLTYPE d3d11_device_OpenSharedResource(ID3D11Device5 *iface, HANDLE resource, REFIID iid,
         void **out)
 {
-    FIXME("iface %p, resource %p, iid %s, out %p stub!\n", iface, resource, debugstr_guid(iid), out);
+    TRACE("iface %p, resource %p, iid %s, out %p.\n", iface, resource, debugstr_guid(iid), out);
 
+    if (!resource || !out)
+        return E_INVALIDARG;
+    *out = NULL;
+
+    /* This entry point only accepts the global D3DKMT handles returned by
+     * IDXGIResource::GetSharedHandle(); NT handles have to be opened with
+     * ID3D11Device1::OpenSharedResource1(). */
+    if (!((ULONG_PTR)resource & 0xc0000000))
+        return E_INVALIDARG;
+
+    FIXME("Opening resources shared through a global handle is not implemented.\n");
     return E_NOTIMPL;
 }
 
@@ -5236,12 +5249,72 @@ fail:
     return hr;
 }
 
+/* Retrieve the runtime description a resource was shared with, as stored by
+ * IDXGIResource1::CreateSharedHandle(). */
+static HRESULT d3d11_get_shared_resource_desc(HANDLE handle, struct d3dkmt_d3d11_desc *desc)
+{
+    struct
+    {
+        D3DKMT_SHARED_RESOURCE_RUNTIME_DATA_WINE params;
+        struct d3dkmt_d3d11_desc desc;
+    } data;
+    D3DKMT_ESCAPE escape = {0};
+    NTSTATUS status;
+
+    memset(&data, 0, sizeof(data));
+    data.params.handle = (UINT_PTR)handle;
+    data.params.data_size = sizeof(data.desc);
+
+    escape.Type = D3DKMT_ESCAPE_SHARED_RESOURCE_RUNTIME_DATA_WINE;
+    escape.pPrivateDriverData = &data;
+    escape.PrivateDriverDataSize = sizeof(data);
+    if ((status = D3DKMTEscape(&escape)))
+    {
+        WARN("Failed to retrieve the description of shared resource %p, status %#lx.\n", handle, status);
+        return E_INVALIDARG;
+    }
+
+    if (data.params.data_size != sizeof(data.desc) || data.desc.dxgi.size != sizeof(data.desc))
+    {
+        FIXME("Unsupported runtime data size %#x/%#x.\n", data.params.data_size, data.desc.dxgi.size);
+        return E_INVALIDARG;
+    }
+
+    *desc = data.desc;
+    return S_OK;
+}
+
 static HRESULT STDMETHODCALLTYPE d3d11_device_OpenSharedResource1(ID3D11Device5 *iface, HANDLE handle,
         REFIID iid, void **resource)
 {
-    FIXME("iface %p, handle %p, iid %s, resource %p stub!\n", iface, handle, debugstr_guid(iid), resource);
+    struct d3d_device *device = impl_from_ID3D11Device5(iface);
+    struct d3dkmt_d3d11_desc shared_desc;
+    D3D11_TEXTURE2D_DESC texture_desc;
+    struct d3d_texture2d *object;
+    HRESULT hr;
 
-    return E_NOTIMPL;
+    TRACE("iface %p, handle %p, iid %s, resource %p.\n", iface, handle, debugstr_guid(iid), resource);
+
+    if (!handle || !resource)
+        return E_INVALIDARG;
+    *resource = NULL;
+
+    if (FAILED(hr = d3d11_get_shared_resource_desc(handle, &shared_desc)))
+        return hr;
+
+    if (shared_desc.dimension != D3D11_RESOURCE_DIMENSION_TEXTURE2D)
+    {
+        FIXME("Unsupported resource dimension %#x.\n", shared_desc.dimension);
+        return E_NOTIMPL;
+    }
+
+    texture_desc = shared_desc.d3d11_2d;
+    if (FAILED(hr = d3d_texture2d_create(device, &texture_desc, NULL, NULL, handle, &object)))
+        return hr;
+
+    hr = ID3D11Texture2D_QueryInterface(&object->ID3D11Texture2D_iface, iid, resource);
+    ID3D11Texture2D_Release(&object->ID3D11Texture2D_iface);
+    return hr;
 }
 
 static HRESULT STDMETHODCALLTYPE d3d11_device_OpenSharedResourceByName(ID3D11Device5 *iface, const WCHAR *name,
@@ -6990,7 +7063,7 @@ static HRESULT STDMETHODCALLTYPE d3d10_device_CreateTexture2D(ID3D10Device1 *ifa
     d3d11_desc.CPUAccessFlags = d3d11_cpu_access_flags_from_d3d10_cpu_access_flags(desc->CPUAccessFlags);
     d3d11_desc.MiscFlags = d3d11_resource_misc_flags_from_d3d10_resource_misc_flags(desc->MiscFlags);
 
-    if (FAILED(hr = d3d_texture2d_create(device, &d3d11_desc, NULL, (const D3D11_SUBRESOURCE_DATA *)data, &object)))
+    if (FAILED(hr = d3d_texture2d_create(device, &d3d11_desc, NULL, (const D3D11_SUBRESOURCE_DATA *)data, NULL, &object)))
         return hr;
 
     *texture = &object->ID3D10Texture2D_iface;
@@ -8032,7 +8105,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_device_parent_register_swapchain_texture(I
     if (texture_flags)
         FIXME("Unhandled flags %#x.\n", texture_flags);
 
-    if (FAILED(hr = d3d_texture2d_create(device, &desc, wined3d_texture, NULL, &object)))
+    if (FAILED(hr = d3d_texture2d_create(device, &desc, wined3d_texture, NULL, NULL, &object)))
         return hr;
 
     hr = IUnknown_QueryInterface(object->dxgi_resource, &IID_IDXGISurface, (void **)ret_surface);

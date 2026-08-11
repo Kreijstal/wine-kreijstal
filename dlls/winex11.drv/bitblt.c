@@ -1900,6 +1900,14 @@ static BOOL x11drv_surface_flush( struct window_surface *window_surface, const R
 #endif /* HAVE_LIBXSHAPE */
     }
 
+    /* The window of a layered surface is only mapped once the surface has a frame to
+     * show, and its shape has just been applied above, so map it before presenting:
+     * an unmapped X11 window has no backing store and would discard the pixels. The
+     * shape is applied on the gdi display while the window is mapped on the thread
+     * display, so it has to reach the server first, or the window is mapped as a
+     * full rectangle and the X server discards what is underneath it. */
+    if (window_surface->alpha_mask) layered_window_surface_flushed( window_surface->hwnd );
+
     /* Always rebuild composition from the retained application image.  Compositing
      * into that image would accumulate translucent content on every Expose replay. */
     if (dcomp_image_compatible( surface ) && x11drv_dcomp_has_targets( window_surface->hwnd ))

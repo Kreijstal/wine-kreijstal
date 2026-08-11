@@ -3280,6 +3280,35 @@ BOOL X11DRV_GetWindowStyleMasks( HWND hwnd, UINT style, UINT ex_style, UINT *sty
 }
 
 
+/***********************************************************************
+ *		layered_window_surface_flushed
+ *
+ * Called when a layered window surface is about to present to its window. The
+ * mapping of a window using per-pixel alpha is delayed until UpdateLayeredWindow
+ * has published a frame for it, so that the window is only ever mapped with a
+ * shape it already has. The caller presents the surface right after this returns.
+ */
+void layered_window_surface_flushed( HWND hwnd )
+{
+    struct x11drv_win_data *data;
+    UINT style;
+
+    if (!(data = get_win_data( hwnd ))) return;
+
+    style = NtUserGetWindowLongW( hwnd, GWL_STYLE );
+    if (data->layered && data->use_alpha && data->layered_updated && data->whole_window &&
+        data->desired_state.wm_state == WithdrawnState && (style & WS_VISIBLE) &&
+        !(style & WS_MINIMIZE) && is_window_rect_mapped( &data->rects.window ))
+    {
+        XSync( gdi_display, False );  /* the shape has to reach the server before the map */
+        window_set_wm_state( data, NormalState, FALSE );
+        XSync( data->display, False );  /* let the server map the window before we paint it */
+    }
+
+    release_win_data( data );
+}
+
+
 static BOOL get_desired_wm_state( DWORD style, const struct window_rects *rects )
 {
     if (style & WS_VISIBLE)
@@ -3326,9 +3355,14 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
         new_style |= WS_VISIBLE;
     }
 
-    /* layered windows are mapped only once their attributes are set */
+    /* Layered windows are mapped only once their attributes are set, and a window
+     * using per-pixel alpha only once UpdateLayeredWindow has published a frame for
+     * it. Mapping it any earlier would first show an opaque rectangle over whatever
+     * it is composited onto, and the X server would then discard the pixels
+     * underneath when the frame's shape carves that rectangle away again. */
     if (data->desired_state.wm_state == WithdrawnState && (new_style & WS_VISIBLE) &&
-        (ex_style & WS_EX_LAYERED) && !data->layered && !IsRectEmpty( &new_rects->window ))
+        (ex_style & WS_EX_LAYERED) && !IsRectEmpty( &new_rects->window ) &&
+        (!data->layered || (data->use_alpha && !data->layered_updated)))
     {
         WARN( "win %p/%lx is layered, delaying mapping\n", hwnd, data->whole_window );
         new_style &= ~WS_VISIBLE;
@@ -3545,6 +3579,11 @@ void X11DRV_UpdateLayeredWindow( HWND hwnd, BYTE alpha, UINT flags )
     struct x11drv_win_data *data;
 
     if (!(data = get_win_data( hwnd ))) return;
+
+    /* Only the very first update has to wait for the frame to be flushed before the
+     * window can be mapped, and a later window position change must not keep waiting
+     * for an update that publishes no pixels at all. */
+    data->layered_updated = TRUE;
 
     if (data->whole_window)
     {

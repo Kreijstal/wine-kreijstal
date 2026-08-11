@@ -692,6 +692,7 @@ struct x11drv_win_data
     UINT        embedded : 1;   /* is window an XEMBED client? */
     UINT        shaped : 1;     /* is window using a custom region shape? */
     UINT        layered : 1;    /* is window layered and with valid attributes? */
+    UINT        layered_updated : 1; /* has UpdateLayeredWindow been called for the window? */
     UINT        use_alpha : 1;  /* does window use an alpha channel? */
     UINT        skip_taskbar : 1; /* does window should be deleted from taskbar */
     UINT        add_taskbar : 1; /* does window should be added to taskbar regardless of style */
@@ -751,6 +752,7 @@ extern void detach_client_window( struct x11drv_win_data *data, Window client_wi
 extern void attach_client_window( struct x11drv_win_data *data, Window client_window );
 extern void destroy_client_window( HWND hwnd, Window client_window );
 extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha );
+extern void layered_window_surface_flushed( HWND hwnd );
 extern void change_systray_owner( Display *display, Window systray_window );
 extern BOOL update_clipboard( HWND hwnd );
 extern void init_win_context(void);

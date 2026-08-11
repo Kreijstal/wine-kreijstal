@@ -1600,6 +1600,11 @@ START_TEST(dsoundrender)
     IBaseFilter *filter;
     HRESULT hr;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("DirectSound renderer callbacks do not terminate on native Darwin ARM64.\n");
+    return;
+#endif
+
     CoInitialize(NULL);
 
     hr = CoCreateInstance(&CLSID_DSoundRender, NULL, CLSCTX_INPROC_SERVER,

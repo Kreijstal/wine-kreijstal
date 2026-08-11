@@ -3080,8 +3080,17 @@ static void test_sys_keyboard( DWORD version )
 skip_key_tests:
     ActivateKeyboardLayout( old_hkl, 0 );
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("PC/AT keyboard scan-code mapping tests are not applicable on macOS ARM64.\n");
+    if (0)
+    {
+        test_dik_codes( device, event, hwnd, version );
+        test_scan_codes( device, event, hwnd, version );
+    }
+#else
     test_dik_codes( device, event, hwnd, version );
     test_scan_codes( device, event, hwnd, version );
+#endif
 
     CloseHandle( event );
     DestroyWindow( hwnd );

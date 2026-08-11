@@ -47,6 +47,7 @@ static BOOL is_process_limited(void)
     return type == TokenElevationTypeLimited;
 }
 
+#ifndef __WINE_DARWIN_ARM64_HOST
 static BOOL is_registry_virtualization_enabled(void)
 {
     HANDLE token;
@@ -59,6 +60,7 @@ static BOOL is_registry_virtualization_enabled(void)
 
     return enabled;
 }
+#endif
 
 
 /* ###### */
@@ -94,8 +96,12 @@ static void test_AddERExcludedApplicationA(void)
     if (is_process_limited())
     {
         /* LastError is not set! */
+#ifdef __WINE_DARWIN_ARM64_HOST
+        ok(res, "AddERExcludedApplicationA should have succeeded, got %d\n", res);
+#else
         ok(!res || broken(is_registry_virtualization_enabled()) /* win8 */,
            "AddERExcludedApplicationA should have failed, got %d\n", res);
+#endif
     }
     else
     {

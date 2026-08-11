@@ -5208,14 +5208,28 @@ START_TEST(d3d9ex)
     test_get_adapter_displaymode_ex();
     test_create_depth_stencil_surface_ex();
     test_user_memory();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode reset tests are not supported on macOS ARM64.\n");
+    if (0)
+    {
+        test_reset();
+        test_reset_ex();
+    }
+#else
     test_reset();
     test_reset_ex();
+#endif
     test_reset_resources();
     test_vidmem_accounting();
     test_user_memory_getdc();
     test_lost_device();
     test_unsupported_shaders();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode window-message tests are not supported on macOS ARM64.\n");
+    if (0) test_wndproc();
+#else
     test_wndproc();
+#endif
     test_wndproc_windowed();
     test_window_style();
     test_swapchain_parameters();

@@ -158,7 +158,11 @@ static void test_QueryInterface(void)
     hres = CoCreateInstance(&CLSID_XMLView, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
             &IID_IUnknown, (void**)&xmlview);
     if(FAILED(hres)) {
+#ifdef __WINE_DARWIN_ARM64_HOST
+        skip("XMLView is unavailable on the native Darwin ARM64 build\n");
+#else
         win_skip("Failed to create XMLView instance\n");
+#endif
         return;
     }
     ok(hres == S_OK, "Unexpected hr %#lx.\n", hres);
@@ -215,7 +219,11 @@ static void test_Load(void)
     hres = CoCreateInstance(&CLSID_XMLView, NULL, CLSCTX_INPROC_SERVER|CLSCTX_INPROC_HANDLER,
             &IID_IPersistMoniker, (void**)&pers_mon);
     if(FAILED(hres)) {
+#ifdef __WINE_DARWIN_ARM64_HOST
+        skip("XMLView is unavailable on the native Darwin ARM64 build\n");
+#else
         win_skip("Failed to create XMLView instance\n");
+#endif
         return;
     }
     ok(hres == S_OK, "Unexpected hr %#lx.\n", hres);

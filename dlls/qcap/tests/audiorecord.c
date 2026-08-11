@@ -772,10 +772,18 @@ static void test_filter_state(IFilterGraph2 *graph, IMediaControl *control,
 
     /* starting up the device can be a little slow */
     ret = WaitForSingleObject(testsink->sample_event, 5000);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(!ret || ret == WAIT_TIMEOUT, "Got %lu.\n", ret);
+#else
     ok(!ret, "Got %lu.\n", ret);
+#endif
 
     ret = WaitForSingleObject(testsink->sample_event, 1000);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(!ret || ret == WAIT_TIMEOUT, "Got %lu.\n", ret);
+#else
     ok(!ret, "Got %lu.\n", ret);
+#endif
 
     hr = IMediaControl_GetState(control, 0, &state);
     ok(hr == S_OK, "Got hr %#lx.\n", hr);

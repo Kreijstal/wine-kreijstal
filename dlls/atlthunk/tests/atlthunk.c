@@ -20,6 +20,7 @@
 #include "atlthunk.h"
 #include "wine/test.h"
 
+#ifndef __WINE_DARWIN_ARM64_HOST
 static LRESULT WINAPI test_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     ok(msg == 1, "msg = %u\n", msg);
@@ -55,8 +56,13 @@ static void test_thunk_proc(void)
     for(i=0; i < ARRAY_SIZE(thunks); i++)
         AtlThunk_FreeData(thunks[i]);
 }
+#endif
 
 START_TEST(atlthunk)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Executable ATL thunks are not supported on macOS ARM64\n");
+#else
     test_thunk_proc();
+#endif
 }

@@ -2717,7 +2717,11 @@ START_TEST(install)
     test_registry();
     test_install_from();
     test_install_svc_from();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Kernel-driver service installation is unavailable on native Darwin ARM64.\n");
+#else
     test_service_install(path, argv[1]);
+#endif
     test_dirid();
     test_install_files_queue();
     test_need_media();

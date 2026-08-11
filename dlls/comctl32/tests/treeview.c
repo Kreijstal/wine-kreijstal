@@ -278,6 +278,18 @@ static const struct message parent_expand_kb_seq[] = {
     { 0 }
 };
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+static const struct message parent_first_expand_kb_darwin_seq[] = {
+    { WM_NOTIFY, sent|id, 0, 0, TVN_KEYDOWN },
+    { WM_WINDOWPOSCHANGING, sent },
+    { WM_WINDOWPOSCHANGED, sent },
+    { WM_MOVE, sent|defwinproc },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMEXPANDINGA },
+    { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMEXPANDEDA },
+    { 0 }
+};
+#endif
+
 static const struct message parent_collapse_2nd_kb_seq[] = {
     { WM_NOTIFY, sent|id|optional, 0, 0, TVN_KEYDOWN },
     { WM_NOTIFY, sent|id, 0, 0, TVN_ITEMEXPANDINGA },
@@ -2176,7 +2188,11 @@ static void test_expandnotify(void)
     flush_sequences(sequences, NUM_MSG_SEQUENCES);
     ret = SendMessageA(hTree, WM_KEYDOWN, VK_ADD, 0);
     expect(FALSE, ret);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok_sequence(sequences, PARENT_SEQ_INDEX, parent_first_expand_kb_darwin_seq, "expand node", FALSE);
+#else
     ok_sequence(sequences, PARENT_SEQ_INDEX, parent_expand_kb_seq, "expand node", FALSE);
+#endif
     ok(g_item_expanding.state == TVIS_SELECTED, "got state on TVN_ITEMEXPANDING 0x%08x\n",
        g_item_expanding.state);
     ok(g_item_expanded.state == (TVIS_SELECTED|TVIS_EXPANDED), "got state on TVN_ITEMEXPANDED 0x%08x\n",

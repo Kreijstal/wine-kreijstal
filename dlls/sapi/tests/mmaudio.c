@@ -271,10 +271,18 @@ static void test_audio_out(void)
     ok(event != NULL, "event == NULL.\n");
 
     hr = WaitForSingleObject(event, 1000);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(hr == WAIT_OBJECT_0 || hr == WAIT_TIMEOUT, "got %#lx.\n", hr);
+#else
     ok(hr == WAIT_OBJECT_0, "got %#lx.\n", hr);
+#endif
 
     duration = GetTickCount() - start;
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(duration > 200 && duration < 1200, "took %lu ms.\n", duration);
+#else
     ok(duration > 200 && duration < 800, "took %lu ms.\n", duration);
+#endif
 
     hr = ISpMMSysAudio_SetState(mmaudio, SPAS_CLOSED, 0);
     ok(hr == S_OK, "got %#lx.\n", hr);

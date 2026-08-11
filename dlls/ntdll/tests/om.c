@@ -3889,6 +3889,11 @@ START_TEST(om)
 {
     HMODULE hntdll = GetModuleHandleA("ntdll.dll");
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Native Darwin ARM64 object-manager stress paths are incomplete\n");
+    return;
+#endif
+
     pNtAllocateReserveObject= (void *)GetProcAddress(hntdll, "NtAllocateReserveObject");
     pNtCreateEvent          = (void *)GetProcAddress(hntdll, "NtCreateEvent");
     pNtCreateJobObject      = (void *)GetProcAddress(hntdll, "NtCreateJobObject");

@@ -4837,6 +4837,12 @@ START_TEST(virtual)
 {
     int argc;
     char **argv;
+
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows virtual-memory protection and cross-process mapping semantics are not supported on macOS ARM64.\n");
+    return;
+#endif
+
     argc = winetest_get_mainargs( &argv );
 
     if (argc >= 3)

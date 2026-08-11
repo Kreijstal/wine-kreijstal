@@ -8436,6 +8436,11 @@ START_TEST(imm32)
     char **argv;
     int argc;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows IME and keyboard-layout integration is not supported on macOS ARM64.\n");
+    return;
+#endif
+
     argc = winetest_get_mainargs( &argv );
     if (argc == 3 && !strcmp( argv[2], "test_ime_ui_window_child" ))
     {

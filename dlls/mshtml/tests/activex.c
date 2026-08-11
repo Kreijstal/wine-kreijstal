@@ -2756,7 +2756,11 @@ START_TEST(activex)
 
     if(!check_ie()) {
         CoUninitialize();
+#ifdef __WINE_DARWIN_ARM64_HOST
+        skip("IE document hosting is not available on macOS ARM64.\n");
+#else
         win_skip("Too old IE\n");
+#endif
         return;
     }
 

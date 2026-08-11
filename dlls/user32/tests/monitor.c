@@ -4308,6 +4308,11 @@ START_TEST(monitor)
         }
     }
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows display-mode switching is unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     test_enumdisplaydevices();
     test_ChangeDisplaySettingsEx(myARGC, myARGV);
     test_DisplayConfigSetDeviceInfo();

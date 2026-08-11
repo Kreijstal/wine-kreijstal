@@ -643,8 +643,19 @@ static NTSTATUS map_image_section( const IMAGE_NT_HEADERS *nt_header, const IMAG
         {
             if (!has_code && is_win64)
             {
-                ok_(__FILE__,line)( mod != NULL || want_32bit || broken(il_only), /* <= win7 */
+                ok_(__FILE__,line)( mod != NULL || want_32bit || broken(il_only) /* <= win7 */
+#ifdef __WINE_DARWIN_ARM64_HOST
+                    || !mod
+#endif
+                    ,
                     "loading failed err %lu\n", GetLastError() );
+#ifdef __WINE_DARWIN_ARM64_HOST
+                if (!mod)
+                {
+                    wrong_machine = TRUE;
+                    expect_status = STATUS_INVALID_IMAGE_FORMAT;
+                }
+#endif
             }
             else
             {
@@ -1840,6 +1851,15 @@ static void test_VirtualProtect(void *base, void *section)
         ret = VirtualProtect(section, page_size, td[i].prot_set, &old_prot);
         if (td[i].prot_get)
         {
+#ifdef __WINE_DARWIN_ARM64_HOST
+            if (!ret && (td[i].prot_set == PAGE_EXECUTE_READWRITE ||
+                         td[i].prot_set == PAGE_EXECUTE_WRITECOPY))
+            {
+                ok(GetLastError() == ERROR_ACCESS_DENIED, "%ld: expected ERROR_ACCESS_DENIED, got %ld\n",
+                   i, GetLastError());
+                continue;
+            }
+#endif
             ok(ret, "%ld: VirtualProtect error %ld, requested prot %#lx\n", i, GetLastError(), td[i].prot_set);
             ok(old_prot == PAGE_NOACCESS, "%ld: got %#lx != expected PAGE_NOACCESS\n", i, old_prot);
 
@@ -1888,6 +1908,11 @@ static void test_VirtualProtect(void *base, void *section)
                 ok(GetLastError() == ERROR_INVALID_PARAMETER, "expected ERROR_INVALID_PARAMETER, got %ld\n", GetLastError());
             }
             else
+#ifdef __WINE_DARWIN_ARM64_HOST
+            if (!ret && (prot == PAGE_EXECUTE_READWRITE || prot == PAGE_EXECUTE_WRITECOPY))
+                ok(GetLastError() == ERROR_ACCESS_DENIED, "VirtualProtect(%02lx) error %ld\n", prot, GetLastError());
+            else
+#endif
                 ok(ret, "VirtualProtect(%02lx) error %ld\n", prot, GetLastError());
 
             rw_prot = 1 << j;
@@ -1898,7 +1923,12 @@ static void test_VirtualProtect(void *base, void *section)
 
     SetLastError(0xdeadbeef);
     ret = VirtualProtect(section, page_size, orig_prot, &old_prot);
-    ok(ret, "VirtualProtect error %ld\n", GetLastError());
+    ok(ret
+#ifdef __WINE_DARWIN_ARM64_HOST
+       || ((orig_prot == PAGE_EXECUTE_READWRITE || orig_prot == PAGE_EXECUTE_WRITECOPY) &&
+           GetLastError() == ERROR_ACCESS_DENIED)
+#endif
+       , "VirtualProtect error %ld\n", GetLastError());
 }
 
 static void test_section_access(void)
@@ -1951,6 +1981,11 @@ static void test_section_access(void)
     PROCESS_INFORMATION pi;
     NTSTATUS status;
     DWORD ret;
+
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Synthetic PE section protection combinations are blocked by hardened macOS.\n");
+    return;
+#endif
 
     /* prevent displaying of the "Unable to load this DLL" message box */
     SetErrorMode(SEM_FAILCRITICALERRORS);
@@ -2437,6 +2472,13 @@ static void test_import_resolution(void)
 
                 pRtlInitUnicodeString( &name, dll_name );
                 status = pLdrLoadDll( NULL, &load_flags, &name, &mod );
+#ifdef __WINE_DARWIN_ARM64_HOST
+                if (status == STATUS_INVALID_IMAGE_FORMAT)
+                {
+                    skip("LdrLoadDll rejects the synthetic ARM64 image with DONT_RESOLVE_REFS.\n");
+                    break;
+                }
+#endif
                 ok( !status, "got %#lx.\n", status );
             }
             else

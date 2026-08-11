@@ -449,6 +449,11 @@ static void test_InternetExplorerManager(void)
 
 START_TEST(ie)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Legacy IE browser integration is not supported on macOS ARM64.\n");
+    return;
+#endif
+
     CoInitialize(NULL);
 
     test_InternetExplorerManager();

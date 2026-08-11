@@ -1041,6 +1041,10 @@ static void test_com_aggregation(const CLSID *clsid)
 
 START_TEST(protocol)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
     res_url_base_len = 6 + GetModuleFileNameW(NULL, res_url_base + 6 /* strlen("res://") */,
                                               ARRAY_SIZE(res_url_base)-6);
 

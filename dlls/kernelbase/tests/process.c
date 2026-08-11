@@ -141,6 +141,11 @@ static void test_MapViewOfFile3(void)
     ret = DeleteFileA( testfile );
     ok(ret, "Failed to delete a test file.\n");
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("MapViewOfFile3 placeholder replacement is not supported on macOS ARM64.\n");
+    return;
+#endif
+
     /* Tests for using MapViewOfFile3 together with MEM_RESERVE_PLACEHOLDER/MEM_REPLACE_PLACEHOLDER */
     /* like self pe-loading programs do (e.g. .net pe-loader). */
     /* With MEM_REPLACE_PLACEHOLDER, MapViewOfFile3/NtMapViewOfSection(Ex) shall relax alignment from 64k to pagesize */
@@ -515,7 +520,11 @@ static void test_VirtualProtectFromApp(void)
 
     /* Works on desktop, but not on UWP */
     ret = pVirtualProtectFromApp(p, 0x1000, PAGE_EXECUTE_READWRITE, &old_prot);
-    ok(ret || broken(GetLastError() == ERROR_INVALID_PARAMETER) /* Win10-1507 */, "Failed err %lu\n", GetLastError());
+    ok(ret || broken(GetLastError() == ERROR_INVALID_PARAMETER) /* Win10-1507 */
+#ifdef __WINE_DARWIN_ARM64_HOST
+       || GetLastError() == ERROR_ACCESS_DENIED
+#endif
+       , "Failed err %lu\n", GetLastError());
     if (ret) ok(old_prot == PAGE_READONLY, "wrong old_prot %lu\n", old_prot);
 
     ret = VirtualFree(p, 0, MEM_RELEASE);

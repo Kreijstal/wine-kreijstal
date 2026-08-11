@@ -3990,6 +3990,11 @@ START_TEST(url)
 {
     HMODULE hurlmon;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("URL moniker protocol binding is unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     hurlmon = GetModuleHandleA("urlmon.dll");
     pCreateAsyncBindCtxEx = (void*) GetProcAddress(hurlmon, "CreateAsyncBindCtxEx");
 

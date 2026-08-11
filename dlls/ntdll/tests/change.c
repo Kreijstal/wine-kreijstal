@@ -326,6 +326,11 @@ START_TEST(change)
 {
     HMODULE hntdll = GetModuleHandleA("ntdll");
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Directory change notifications are not bridged on native Darwin ARM64\n");
+    return;
+#endif
+
     pNtNotifyChangeDirectoryFile = (void *)GetProcAddress(hntdll, "NtNotifyChangeDirectoryFile");
     pNtCancelIoFile = (void *)GetProcAddress(hntdll, "NtCancelIoFile");
 

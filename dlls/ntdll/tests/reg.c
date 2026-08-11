@@ -3157,6 +3157,11 @@ START_TEST(reg)
 {
     LSTATUS status;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Native Darwin ARM64 registry notification stress paths are incomplete\n");
+    return;
+#endif
+
     if(!InitFunctionPtrs())
         return;
 

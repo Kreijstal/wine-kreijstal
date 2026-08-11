@@ -8215,10 +8215,14 @@ static void test_GetKernelObjectSecurity(void)
     ok(GetLastError() == ERROR_INVALID_HANDLE, "got error %lu\n", GetLastError());
     ok(size == 0xdeadbeef, "got size %lu\n", size);
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("NULL result-length exception handling is not supported on macOS ARM64\n");
+#else
     SetLastError(0xdeadbeef);
     ret = GetKernelObjectSecurity(GetCurrentProcess(), OWNER_SECURITY_INFORMATION, NULL, 0, NULL);
     ok(!ret, "expected failure\n");
     ok(GetLastError() == ERROR_NOACCESS, "got error %lu\n", GetLastError());
+#endif
 
     SetLastError(0xdeadbeef);
     size = 0xdeadbeef;

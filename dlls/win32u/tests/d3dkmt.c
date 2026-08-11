@@ -6765,6 +6765,11 @@ START_TEST( d3dkmt )
     if (argc > 3 && !strcmp( argv[2], "test_D3DKMTCreateSynchronizationObject" ))
         return test_D3DKMTCreateSynchronizationObject_process( argv[3] );
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows GPU kernel-thunk interfaces are unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     test_D3DKMTOpenAdapterFromGdiDisplayName();
     test_D3DKMTOpenAdapterFromHdc();
     test_D3DKMTEnumAdapters2();

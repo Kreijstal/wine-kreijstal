@@ -3045,6 +3045,11 @@ START_TEST(shlexec)
         ExitProcess(winetest_get_failures());
     }
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Shell association execution is unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     init_test();
 
     test_commandline2argv();

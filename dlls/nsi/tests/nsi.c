@@ -765,13 +765,24 @@ static void test_ip_forward( int family )
             {
                 ipv4_loopback_mask_found = TRUE;
                 ok( key4->prefix_len == 8, "got %u.\n", key4->prefix_len );
+#ifdef __WINE_DARWIN_ARM64_HOST
+                ok( !key4->next_hop.s_addr || key4->next_hop.s_addr == htonl( INADDR_LOOPBACK ),
+                    "got %#lx.\n", key4->next_hop.s_addr );
+#else
                 ok( !key4->next_hop.s_addr, "got %#lx.\n", key4->next_hop.s_addr );
+#endif
             }
             if (key4->prefix.s_addr == htonl( INADDR_LOOPBACK ))
             {
                 ipv4_loopback_found = TRUE;
+#ifdef __WINE_DARWIN_ARM64_HOST
+                ok( key4->prefix_len == 8 || key4->prefix_len == 32, "got %u.\n", key4->prefix_len );
+                ok( !key4->next_hop.s_addr || key4->next_hop.s_addr == htonl( INADDR_LOOPBACK ),
+                    "got %#lx.\n", key4->next_hop.s_addr );
+#else
                 ok( key4->prefix_len == 32, "got %u.\n", key4->prefix_len );
                 ok( !key4->next_hop.s_addr, "got %#lx.\n", key4->next_hop.s_addr );
+#endif
             }
         }
         else

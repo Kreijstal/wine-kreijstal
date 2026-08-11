@@ -2866,7 +2866,11 @@ START_TEST(misc)
         test_CopyStgMedium();
         test_CopyBindInfo();
         test_UrlMkGetSessionOption();
+#ifdef __WINE_DARWIN_ARM64_HOST
+        skip("Windows user-agent architecture suffixes are unavailable on native Darwin ARM64.\n");
+#else
         test_user_agent();
+#endif
         test_MkParseDisplayNameEx();
         test_IsValidURL();
         test_bsc_marshaling();

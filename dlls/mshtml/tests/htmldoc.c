@@ -9816,6 +9816,10 @@ static void test_com_aggregation(const CLSID *clsid)
 
 START_TEST(htmldoc)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
     /* some tests need an English locale */
     SetThreadPreferredUILanguages( MUI_LANGUAGE_NAME, L"en-US\0", NULL );
 

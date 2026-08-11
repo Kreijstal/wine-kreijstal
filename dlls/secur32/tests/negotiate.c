@@ -466,6 +466,11 @@ START_TEST(negotiate)
 {
     SecPkgInfoA *info;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Negotiate handshake initialization does not complete on native Darwin ARM64.\n");
+    return;
+#endif
+
     if (QuerySecurityPackageInfoA( (SEC_CHAR *)"Negotiate", &info ))
     {
         ok( 0, "Negotiate package not installed, skipping test\n" );

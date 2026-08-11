@@ -28,6 +28,12 @@
 
 #include "wine/test.h"
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+#define fusion_skip skip
+#else
+#define fusion_skip win_skip
+#endif
+
 /* ok-like statement which takes two unicode strings or one unicode and one ANSI string as arguments */
 static CHAR string1[MAX_PATH];
 
@@ -65,7 +71,7 @@ static BOOL init_functionpointers(void)
         hr = pLoadLibraryShim(L"fusion.dll", NULL, NULL, &hfusion);
         if (FAILED(hr))
         {
-            win_skip("fusion.dll not available\n");
+            fusion_skip("fusion.dll not available\n");
             FreeLibrary(hmscoree);
             return FALSE;
         }
@@ -1079,7 +1085,7 @@ START_TEST(asmname)
 {
     if (!init_functionpointers())
     {
-        win_skip("fusion.dll not available\n");
+        fusion_skip("fusion.dll not available\n");
         return;
     }
 

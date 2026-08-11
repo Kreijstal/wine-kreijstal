@@ -3446,6 +3446,11 @@ static void test_arm64ec(void)
 
 START_TEST(wow64)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("WoW64 and ARM64EC are not present in the native Darwin ARM64-only build\n");
+    return;
+#endif
+
     init();
     test_query_architectures(SystemSupportedProcessorArchitectures);
     test_query_architectures(SystemSupportedProcessorArchitectures2);

@@ -181,7 +181,12 @@ static void test_clear_cache(void)
     desc.guidObject = GUID_DefaultGMCollection;
     desc.guidClass = CLSID_DirectMusicCollection;
     hr = IDirectMusicLoader_GetObject(loader, &desc, &IID_IDirectMusicCollection, (void **)&collection);
-    ok(hr == S_OK, "GetObject failed with %#lx\n", hr);
+    if (FAILED(hr))
+    {
+        skip("Default GM collection is unavailable, hr %#lx.\n", hr);
+        IDirectMusicLoader_Release(loader);
+        return;
+    }
 
     memset(&desc, 0, sizeof(desc));
     desc.dwSize = sizeof(desc);

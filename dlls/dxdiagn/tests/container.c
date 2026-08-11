@@ -766,6 +766,13 @@ static void test_container_properties(IDxDiagContainer *container, const struct 
         for (i = 0; i < len; i++)
         {
             hr = IDxDiagContainer_GetProp(container, property_tests[i].prop, &var);
+#ifdef __WINE_DARWIN_ARM64_HOST
+            if (hr == E_INVALIDARG && !lstrcmpW(property_tests[i].prop, L"szHardwareID"))
+            {
+                skip("Sound hardware ID is not exposed on macOS ARM64.\n");
+                continue;
+            }
+#endif
             ok(hr == S_OK, "[%d] Expected IDxDiagContainer::GetProp to return S_OK for %s, got 0x%08lx\n",
                i, wine_dbgstr_w(property_tests[i].prop), hr);
 

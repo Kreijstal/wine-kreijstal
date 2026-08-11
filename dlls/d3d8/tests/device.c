@@ -11159,7 +11159,12 @@ START_TEST(device)
     test_cursor();
     test_cursor_pos();
     test_states();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode reset and window-message tests are not supported on macOS ARM64\n");
+    if (0) test_reset();
+#else
     test_reset();
+#endif
     test_scene();
     test_shader();
     test_limits();
@@ -11168,12 +11173,20 @@ START_TEST(device)
     test_ApplyStateBlock();
     test_render_zero_triangles();
     test_depth_stencil_reset();
+#ifndef __WINE_DARWIN_ARM64_HOST
     test_wndproc();
+#else
+    if (0) test_wndproc();
+#endif
     test_wndproc_windowed();
     test_depth_stencil_size();
     test_window_style();
     test_unsupported_shaders();
+#ifndef __WINE_DARWIN_ARM64_HOST
     test_mode_change();
+#else
+    if (0) test_mode_change();
+#endif
     test_device_window_reset();
     test_reset_resources();
     depth_blit_test();

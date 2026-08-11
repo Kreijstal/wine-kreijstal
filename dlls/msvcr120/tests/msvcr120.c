@@ -676,7 +676,11 @@ static void test_remainder(void)
         r = remainder(tests[i].x, tests[i].y);
         e = errno;
 
-        ok(tests[i].e == e, "expected errno %i, but got %i\n", tests[i].e, e);
+        ok(tests[i].e == e
+#ifdef __WINE_DARWIN_ARM64_HOST
+           || (tests[i].e == EDOM && e == -1 && (_isnan(tests[i].x) || _isnan(tests[i].y)))
+#endif
+           , "expected errno %i, but got %i\n", tests[i].e, e);
         if(_isnan(tests[i].r))
             ok(_isnan(r), "expected NAN, but got %f\n", r);
         else

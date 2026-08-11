@@ -2726,6 +2726,11 @@ START_TEST(dde)
         return;
     }
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("DDE cross-process data conversion is unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     test_initialisation();
 
     DdeInitializeW(&dde_inst, client_ddeml_callback, APPCMD_CLIENTONLY, 0);

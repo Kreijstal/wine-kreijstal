@@ -66,7 +66,17 @@ static const BOOL is_64bit = sizeof(void *) > sizeof(int);
 
 static BOOL has_wow64(void)
 {
-    if (!is_64bit)
+    if (is_64bit)
+    {
+        char path[MAX_PATH];
+        UINT len;
+
+        if (!(len = GetSystemWow64DirectoryA( path, ARRAY_SIZE(path) ))) return FALSE;
+        if (len + sizeof("\\ntdll.dll") > ARRAY_SIZE(path)) return FALSE;
+        lstrcatA( path, "\\ntdll.dll" );
+        return GetFileAttributesA( path ) != INVALID_FILE_ATTRIBUTES;
+    }
+    else
     {
         BOOL is_wow64;
         if (!pIsWow64Process || !pIsWow64Process( GetCurrentProcess(), &is_wow64 ) || !is_wow64)

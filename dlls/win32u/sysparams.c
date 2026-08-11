@@ -6040,9 +6040,11 @@ BOOL WINAPI NtUserSystemParametersInfoForDpi( UINT action, UINT val, PVOID ptr, 
     case SPI_GETNONCLIENTMETRICS:
     {
         NONCLIENTMETRICSW *ncm = ptr;
+        int padded_border;
 
         if (!ncm) break;
         ret = get_entry_dpi( &entry_BORDER, 0, &ncm->iBorderWidth, dpi ) &&
+              get_entry_dpi( &entry_PADDEDBORDERWIDTH, 0, &padded_border, dpi ) &&
               get_entry_dpi( &entry_SCROLLWIDTH, 0, &ncm->iScrollWidth, dpi ) &&
               get_entry_dpi( &entry_SCROLLHEIGHT, 0, &ncm->iScrollHeight, dpi ) &&
               get_entry_dpi( &entry_CAPTIONWIDTH, 0, &ncm->iCaptionWidth, dpi ) &&
@@ -6056,8 +6058,11 @@ BOOL WINAPI NtUserSystemParametersInfoForDpi( UINT action, UINT val, PVOID ptr, 
               get_entry_dpi( &entry_MENULOGFONT, 0, &ncm->lfMenuFont, dpi ) &&
               get_entry_dpi( &entry_STATUSLOGFONT, 0, &ncm->lfStatusFont, dpi ) &&
               get_entry_dpi( &entry_MESSAGELOGFONT, 0, &ncm->lfMessageFont, dpi );
-        if (ret && ncm->cbSize == sizeof(NONCLIENTMETRICSW))
-            ret = get_entry_dpi( &entry_PADDEDBORDERWIDTH, 0, &ncm->iPaddedBorderWidth, dpi );
+        if (ret)
+        {
+            ncm->iBorderWidth += padded_border;
+            if (ncm->cbSize == sizeof(NONCLIENTMETRICSW)) ncm->iPaddedBorderWidth = 0;
+        }
         normalize_nonclientmetrics( ncm );
         break;
     }

@@ -9743,23 +9743,9 @@ static void test_layered_child_window_show( BOOL create_visible )
     ok( shown_opaque == child_color,
         "Expected opaque pixel %#lx right after ShowWindow, got %#lx\n",
         child_color, shown_opaque );
-    if (create_visible)
-    {
-        /* A child that was already mapped when the frame was published was first
-         * drawn opaque over the parent and only then reshaped, so recovering the
-         * parent's pixel needs a repaint of the parent that Wine only performs
-         * once the exposure is dispatched. */
-        todo_wine
-        ok( shown_transparent == parent_color,
-            "Expected transparent pixel to reveal parent %#lx right after ShowWindow, got %#lx\n",
-            parent_color, shown_transparent );
-    }
-    else
-    {
-        ok( shown_transparent == parent_color,
-            "Expected transparent pixel to reveal parent %#lx right after ShowWindow, got %#lx\n",
-            parent_color, shown_transparent );
-    }
+    ok( shown_transparent == parent_color,
+        "Expected transparent pixel to reveal parent %#lx right after ShowWindow, got %#lx\n",
+        parent_color, shown_transparent );
 
     /* and it still has to hold once everything settled */
     flush_events( TRUE );

@@ -837,10 +837,16 @@ static void test_SPI_SETBORDER( void )                 /*      6 */
     rc=SystemParametersInfoA( SPI_GETBORDER, 0, &old_border, 0 );
     if (!test_error_msg(rc,"SPI_{GET,SET}BORDER"))
         return;
-    /* FIXME: include new PaddedBorderWidth parameter */
+    /* The rest of this test predates the padded border.  test_setborder() requires
+     * SPI_GETBORDER, NONCLIENTMETRICS.iBorderWidth and SM_CXFRAME - SM_CXDLGFRAME to
+     * all be the same number, which is only true when the padded border is zero:
+     * SPI_GETNONCLIENTMETRICS reports iBorderWidth with the padded border folded in
+     * (and iPaddedBorderWidth as zero), so a non-zero padded border makes those three
+     * disagree by exactly its width.  That is a property of the desktop configuration
+     * rather than a missing feature, so skip instead of win_skip. */
     PaddedBorderWidth = ncmsave.iBorderWidth - old_border;
     if( PaddedBorderWidth){
-        win_skip( "Cannot reliably restore border width yet (PaddedBorderWidth = %d)\n",
+        skip( "Cannot reliably restore border width with PaddedBorderWidth = %d\n",
                 PaddedBorderWidth);
         return;
     }

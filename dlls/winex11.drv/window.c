@@ -101,6 +101,9 @@ XContext winContext = 0;
 static XContext win_data_context = 0;
 static XContext host_window_context = 0;
 
+/* whether any layered child window was ever given an X window of its own */
+static BOOL layered_children_exist = FALSE;
+
 static const WCHAR whole_window_prop[] =
     {'_','_','w','i','n','e','_','x','1','1','_','w','h','o','l','e','_','w','i','n','d','o','w',0};
 static const WCHAR clip_window_prop[] =
@@ -3291,7 +3294,11 @@ BOOL X11DRV_GetWindowStyleMasks( HWND hwnd, UINT style, UINT ex_style, UINT *sty
 void layered_window_surface_flushed( HWND hwnd )
 {
     struct x11drv_win_data *data;
+    HWND parent;
     UINT style;
+
+    if ((parent = NtUserGetAncestor( hwnd, GA_PARENT )) && parent != NtUserGetDesktopWindow())
+        layered_children_exist = TRUE;
 
     if (!(data = get_win_data( hwnd ))) return;
 
@@ -3306,6 +3313,35 @@ void layered_window_surface_flushed( HWND hwnd )
     }
 
     release_win_data( data );
+}
+
+
+/***********************************************************************
+ *		sync_layered_children_position
+ *
+ * A layered child window is given an X window of its own, created under the
+ * root next to its top-level ancestor rather than inside its parent. Win32
+ * does not move children when their parent moves, their parent-relative
+ * position doesn't change, so nothing would otherwise update the screen
+ * position that root-level X window was placed at.
+ */
+static void sync_layered_children_position( HWND hwnd )
+{
+    HWND child;
+
+    for (child = NtUserGetWindowRelative( hwnd, GW_CHILD ); child;
+         child = NtUserGetWindowRelative( child, GW_HWNDNEXT ))
+    {
+        struct x11drv_win_data *data;
+
+        if ((data = get_win_data( child )))
+        {
+            if (data->layered && data->whole_window)
+                sync_window_position( data, SWP_NOZORDER | SWP_NOACTIVATE, &data->rects );
+            release_win_data( data );
+        }
+        sync_layered_children_position( child );
+    }
 }
 
 
@@ -3428,6 +3464,10 @@ void X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, HWND owner_hint, UIN
     XFlush( data->display );  /* make sure changes are done before we start painting again */
     release_win_data( data );
     x11drv_dcomp_window_changed( hwnd );
+
+    if (layered_children_exist && (old_rects.visible.left != new_rects->visible.left ||
+                                   old_rects.visible.top != new_rects->visible.top))
+        sync_layered_children_position( hwnd );
 
     if (present_retained_surface) NtUserExposeWindowSurface( hwnd, 0, NULL );
     if (was_fullscreen) NtUserClipCursor( NULL );

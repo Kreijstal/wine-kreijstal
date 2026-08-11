@@ -9768,6 +9768,158 @@ static void test_layered_child_window_show( BOOL create_visible )
     winetest_pop_context();
 }
 
+/* A layered child window is composited at a position its parent's position is
+ * part of, so moving the parent has to move it too, the way it moves an
+ * ordinary child, even though the child's own position and size don't change. */
+static void test_layered_child_window_parent_move(void)
+{
+    static const COLORREF parent_color = RGB( 0x21, 0x43, 0x65 );
+    static const COLORREF child_color = RGB( 0x20, 0x40, 0xc0 );
+    static const char parent_class[] = "LayeredChildMoveParentClass";
+    BITMAPINFO info = {{sizeof(BITMAPINFOHEADER), 40, -20, 1, 32, BI_RGB}};
+    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    WNDCLASSA class = {0};
+    POINT src = {0, 0}, dst = {0, 0}, moved = {0, 0};
+    COLORREF opaque, transparent, vacated, background;
+    SIZE size = {40, 20};
+    HBITMAP bitmap, old_bitmap;
+    HBRUSH brush;
+    DWORD *bits;
+    HDC mem_dc, dc;
+    HWND parent, child;
+    BOOL ret;
+    ATOM atom;
+    unsigned int x, y;
+
+    if (!pUpdateLayeredWindow)
+    {
+        win_skip( "layered windows not supported\n" );
+        return;
+    }
+
+    brush = CreateSolidBrush( parent_color );
+    ok( !!brush, "Failed to create parent brush, error %lu\n", GetLastError() );
+    if (!brush) return;
+
+    class.lpfnWndProc = DefWindowProcA;
+    class.hInstance = GetModuleHandleA( 0 );
+    class.hbrBackground = brush;
+    class.lpszClassName = parent_class;
+    atom = RegisterClassA( &class );
+    ok( !!atom, "Failed to register parent class, error %lu\n", GetLastError() );
+    if (!atom)
+    {
+        DeleteObject( brush );
+        return;
+    }
+
+    flush_events( TRUE );
+
+    parent = CreateWindowExA( WS_EX_TOPMOST, parent_class, "layered child move parent",
+                              WS_POPUP | WS_VISIBLE, 320, 260, 80, 40,
+                              0, 0, 0, NULL );
+    ok( !!parent, "Failed to create parent, error %lu\n", GetLastError() );
+    if (!parent)
+    {
+        UnregisterClassA( parent_class, class.hInstance );
+        DeleteObject( brush );
+        return;
+    }
+    ret = InvalidateRect( parent, NULL, TRUE );
+    ok( ret, "InvalidateRect failed, error %lu\n", GetLastError() );
+    ret = UpdateWindow( parent );
+    ok( ret, "UpdateWindow failed, error %lu\n", GetLastError() );
+    flush_events( TRUE );
+
+    child = CreateWindowExA( WS_EX_LAYERED, "MainWindowClass", "layered child",
+                             WS_CHILD, 10, 10, 40, 20, parent, 0, 0, NULL );
+    ok( !!child, "Failed to create layered child, error %lu\n", GetLastError() );
+    if (!child)
+    {
+        DestroyWindow( parent );
+        UnregisterClassA( parent_class, class.hInstance );
+        DeleteObject( brush );
+        return;
+    }
+
+    mem_dc = CreateCompatibleDC( 0 );
+    bitmap = CreateDIBSection( mem_dc, &info, DIB_RGB_COLORS, (void **)&bits, NULL, 0 );
+    ok( !!mem_dc && !!bitmap, "Failed to create source DIB, error %lu\n", GetLastError() );
+    if (!mem_dc || !bitmap)
+    {
+        if (bitmap) DeleteObject( bitmap );
+        if (mem_dc) DeleteDC( mem_dc );
+        DestroyWindow( child );
+        DestroyWindow( parent );
+        UnregisterClassA( parent_class, class.hInstance );
+        DeleteObject( brush );
+        return;
+    }
+    old_bitmap = SelectObject( mem_dc, bitmap );
+
+    for (y = 0; y < 20; ++y)
+        for (x = 0; x < 40; ++x)
+            bits[y * 40 + x] = x < 20 ? 0xff2040c0 : 0;
+
+    dst.x = 10;
+    dst.y = 10;
+    ret = ClientToScreen( parent, &dst );
+    ok( ret, "ClientToScreen failed, error %lu\n", GetLastError() );
+
+    ret = pUpdateLayeredWindow( child, 0, &dst, &size, mem_dc, &src, 0, &blend, ULW_ALPHA );
+    ok( ret, "UpdateLayeredWindow failed, error %lu\n", GetLastError() );
+    ShowWindow( child, SW_SHOW );
+    flush_events( TRUE );
+
+    dc = GetDC( 0 );
+    opaque = GetPixel( dc, dst.x + 5, dst.y + 5 );
+    transparent = GetPixel( dc, dst.x + 30, dst.y + 5 );
+    ReleaseDC( 0, dc );
+    ok( opaque == child_color, "Expected opaque pixel %#lx before the move, got %#lx\n",
+        child_color, opaque );
+    ok( transparent == parent_color, "Expected transparent pixel %#lx before the move, got %#lx\n",
+        parent_color, transparent );
+
+    /* the child keeps its position within the parent, the parent moves under it */
+    ret = SetWindowPos( parent, 0, 500, 400, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
+    ok( ret, "SetWindowPos failed, error %lu\n", GetLastError() );
+    ret = InvalidateRect( parent, NULL, TRUE );
+    ok( ret, "InvalidateRect failed, error %lu\n", GetLastError() );
+    ret = UpdateWindow( parent );
+    ok( ret, "UpdateWindow failed, error %lu\n", GetLastError() );
+    flush_events( TRUE );
+
+    ret = ClientToScreen( parent, &moved );
+    ok( ret, "ClientToScreen failed, error %lu\n", GetLastError() );
+    ok( moved.x == 500 && moved.y == 400, "Unexpected parent client origin %ld,%ld\n",
+        moved.x, moved.y );
+
+    dc = GetDC( 0 );
+    background = GetPixel( dc, moved.x + 2, moved.y + 2 );
+    opaque = GetPixel( dc, moved.x + 15, moved.y + 15 );
+    transparent = GetPixel( dc, moved.x + 40, moved.y + 15 );
+    vacated = GetPixel( dc, dst.x + 5, dst.y + 5 );
+    ReleaseDC( 0, dc );
+
+    ok( background == parent_color, "Expected the moved parent to show %#lx next to its child, got %#lx\n",
+        parent_color, background );
+
+    ok( opaque == child_color, "Expected the child to follow its parent and show %#lx, got %#lx\n",
+        child_color, opaque );
+    ok( transparent == parent_color, "Expected transparent pixel to reveal the moved parent %#lx, got %#lx\n",
+        parent_color, transparent );
+    ok( vacated != child_color, "Expected the child to leave its old position, still got %#lx\n",
+        vacated );
+
+    SelectObject( mem_dc, old_bitmap );
+    DeleteObject( bitmap );
+    DeleteDC( mem_dc );
+    DestroyWindow( child );
+    DestroyWindow( parent );
+    UnregisterClassA( parent_class, class.hInstance );
+    DeleteObject( brush );
+}
+
 static MONITORINFO mi;
 
 static LRESULT CALLBACK fullscreen_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -14910,6 +15062,9 @@ START_TEST(win)
     }
 
     if (!RegisterWindowClasses()) assert(0);
+
+    /* before the other tests fill the screen with windows they leave behind */
+    test_layered_child_window_parent_move();
 
     hwndMain = CreateWindowExA(/*WS_EX_TOOLWINDOW*/ 0, "MainWindowClass", "Main window",
                                WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |

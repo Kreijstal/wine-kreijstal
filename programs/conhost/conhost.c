@@ -3075,6 +3075,32 @@ int __cdecl wmain(int argc, WCHAR *argv[])
             if (*end) return 1;
             continue;
         }
+        /* Options a pseudoconsole client asks for that this host does not
+         * implement. Refusing to start is the worst possible answer to them:
+         * the client has already been handed a console handle, so a host that
+         * exits before its main loop leaves every process attached to that
+         * console talking to nobody -- a shell spawned into it reads end of
+         * file from its own input and exits at once. Name what is missing and
+         * serve the console anyway. --inheritcursor is passed by this very
+         * DLL's CreatePseudoConsole for PSEUDOCONSOLE_INHERIT_CURSOR, and
+         * --ambiguousIsWide and --textMeasurement by Windows Terminal's own
+         * winconpty for the glyph width flags. */
+        if (!wcscmp( argv[i], L"--inheritcursor" ))
+        {
+            FIXME( "cursor inheritance is not implemented\n" );
+            continue;
+        }
+        if (!wcscmp( argv[i], L"--ambiguousIsWide" ))
+        {
+            FIXME( "wide ambiguous characters are not implemented\n" );
+            continue;
+        }
+        if (!wcscmp( argv[i], L"--textMeasurement" ))
+        {
+            if (++i == argc) return 1;
+            FIXME( "text measurement mode %s is not implemented\n", debugstr_w(argv[i]) );
+            continue;
+        }
         FIXME( "unknown option %s\n", debugstr_w(argv[i]) );
         return 1;
     }

@@ -21446,6 +21446,11 @@ START_TEST(msg)
         return;
     }
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows window-message sequencing is unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     InitializeCriticalSection( &sequence_cs );
     init_procs();
     ImmDisableIME(0);

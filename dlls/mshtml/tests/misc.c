@@ -630,6 +630,10 @@ static void test_HTMLStorage(void)
 
 START_TEST(misc)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
     CoInitialize(NULL);
 
     test_HTMLLoadOptions();

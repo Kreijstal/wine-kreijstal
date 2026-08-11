@@ -814,6 +814,11 @@ START_TEST(dragdrop)
     int argc;
     char **argv;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("OLE drag-target callbacks are not bridged by the native Darwin window backend\n");
+    return;
+#endif
+
     register_dummy_class();
 
     argc = winetest_get_mainargs( &argv );

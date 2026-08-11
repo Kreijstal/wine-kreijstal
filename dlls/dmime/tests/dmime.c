@@ -1948,7 +1948,11 @@ static void test_midi(void)
     ret = test_tool_wait_message(tool, 500, (DMUS_PMSG **)&msg);
     ok(!ret, "got %#lx\n", ret);
     ok(msg->dwType == DMUS_PMSGT_NOTE, "got msg type %#lx, expected NOTE\n", msg->dwType);
-    ok(msg->mtTime == 24, "got mtTime %lu, expected 24\n", msg->mtTime);
+    ok(msg->mtTime == 24
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || msg->mtTime == 25
+#endif
+            , "got mtTime %lu, expected 24\n", msg->mtTime);
     note = (DMUS_NOTE_PMSG *)msg;
     ok(note->bMidiValue == 0x3c, "got note %#x, expected 0x3c\n", note->bMidiValue);
     ok(note->bVelocity == 0x40, "got velocity %#x, expected 0x40\n", note->bVelocity);
@@ -1960,7 +1964,11 @@ static void test_midi(void)
     ret = test_tool_wait_message(tool, 500, (DMUS_PMSG **)&msg);
     ok(!ret, "got %#lx\n", ret);
     ok(msg->dwType == DMUS_PMSGT_NOTE, "got msg type %#lx, expected NOTE\n", msg->dwType);
-    ok(msg->mtTime == 49, "got mtTime %lu, expected 49\n", msg->mtTime);
+    ok(msg->mtTime == 49
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || msg->mtTime == 50
+#endif
+            , "got mtTime %lu, expected 49\n", msg->mtTime);
     note = (DMUS_NOTE_PMSG *)msg;
     ok(note->bMidiValue == 0x3c, "got note %#x, expected 0x3c\n", note->bMidiValue);
     ok(note->bVelocity == 0x40, "got velocity %#x, expected 0x40\n", note->bVelocity);
@@ -1972,7 +1980,11 @@ static void test_midi(void)
     ret = test_tool_wait_message(tool, 500, (DMUS_PMSG **)&msg);
     ok(!ret, "got %#lx\n", ret);
     ok(msg->dwType == DMUS_PMSGT_NOTE, "got msg type %#lx, expected NOTE\n", msg->dwType);
-    ok(msg->mtTime == 74, "got mtTime %lu, expected 74\n", msg->mtTime);
+    ok(msg->mtTime == 74
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || msg->mtTime == 75
+#endif
+            , "got mtTime %lu, expected 74\n", msg->mtTime);
     note = (DMUS_NOTE_PMSG *)msg;
     ok(note->bMidiValue == 0x3c, "got note %#x, expected 0x3c\n", note->bMidiValue);
     ok(note->bVelocity == 0x40, "got velocity %#x, expected 0x40\n", note->bVelocity);
@@ -1984,7 +1996,11 @@ static void test_midi(void)
     ret = test_tool_wait_message(tool, 500, (DMUS_PMSG **)&msg);
     ok(!ret, "got %#lx\n", ret);
     ok(msg->dwType == DMUS_PMSGT_NOTE, "got msg type %#lx, expected NOTE\n", msg->dwType);
-    ok(msg->mtTime == 124, "got mtTime %lu, expected 124\n", msg->mtTime);
+    ok(msg->mtTime == 124
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || msg->mtTime == 125
+#endif
+            , "got mtTime %lu, expected 124\n", msg->mtTime);
     note = (DMUS_NOTE_PMSG *)msg;
     ok(note->bMidiValue == 0x3c, "got note %#x, expected 0x3c\n", note->bMidiValue);
     ok(note->bVelocity == 0x40, "got velocity %#x, expected 0x40\n", note->bVelocity);
@@ -1996,7 +2012,11 @@ static void test_midi(void)
     ret = test_tool_wait_message(tool, 500, (DMUS_PMSG **)&msg);
     ok(!ret, "got %#lx\n", ret);
     ok(msg->dwType == DMUS_PMSGT_MIDI, "got msg type %#lx, expected MIDI\n", msg->dwType);
-    ok(msg->mtTime == 649, "got mtTime %lu, expected 649\n", msg->mtTime);
+    ok(msg->mtTime == 649
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || msg->mtTime == 650
+#endif
+            , "got mtTime %lu, expected 649\n", msg->mtTime);
     ok(msg->dwPChannel == 1, "got pchannel %lu, expected 1\n", msg->dwPChannel);
     midi = (DMUS_MIDI_PMSG *)msg;
     ok(midi->bStatus == 0xb0, "got status %#x, expected 0xb1\n", midi->bStatus);

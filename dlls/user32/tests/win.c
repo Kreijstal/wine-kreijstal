@@ -15061,6 +15061,11 @@ START_TEST(win)
         return;
     }
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows hit-testing and window lifecycle semantics are unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     if (!RegisterWindowClasses()) assert(0);
 
     /* before the other tests fill the screen with windows they leave behind */

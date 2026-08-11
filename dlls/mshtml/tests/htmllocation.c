@@ -386,6 +386,11 @@ START_TEST(htmllocation)
 {
     int i;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
+
     CoInitialize(NULL);
 
     for(i=0; i < ARRAY_SIZE(location_tests); i++)

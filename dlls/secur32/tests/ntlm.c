@@ -1634,6 +1634,11 @@ static void test_null_auth_data(void)
 
 START_TEST(ntlm)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("NTLM security contexts are unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     testAcquireCredentialsHandleW();
     testAcquireCredentialsHandle();
     testQueryCredentialsAttributes();

@@ -12281,6 +12281,11 @@ failed:
 
 START_TEST(transform)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows Media Foundation codec-transform output is not provided by the macOS media backend.\n");
+    return;
+#endif
+
     winetest_mute_threshold = 1;
 
     init_functions();

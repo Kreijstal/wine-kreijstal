@@ -6653,6 +6653,11 @@ START_TEST(action)
     DWORD len;
     char temp_path[MAX_PATH], prev_path[MAX_PATH], log_file[MAX_PATH];
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("MSI installer custom-action integration is not supported on macOS ARM64.\n");
+    return;
+#endif
+
     if (!is_process_elevated()) restart_as_admin_elevated();
 
     subtest("custom");

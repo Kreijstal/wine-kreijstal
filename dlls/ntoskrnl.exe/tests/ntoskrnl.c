@@ -2574,6 +2574,11 @@ START_TEST(ntoskrnl)
     DWORD written;
     HMODULE cfgmgr32 = LoadLibraryA("cfgmgr32.dll");
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Native Darwin ARM64 kernel-driver network and PnP emulation is incomplete\n");
+    return;
+#endif
+
     pCancelIoEx = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CancelIoEx");
     pSetFileCompletionNotificationModes = (void *)GetProcAddress(GetModuleHandleA("kernel32.dll"),
                                                                  "SetFileCompletionNotificationModes");

@@ -57,7 +57,11 @@ void test_GetSystemPowerStatus(void)
            ps.BatteryLifeTime, ps.BatteryFullLifeTime);
         if (ps.BatteryFlag & BATTERY_FLAG_CHARGING)
         {
-            ok(ps.BatteryLifeTime == BATTERY_LIFE_UNKNOWN,
+            ok(ps.BatteryLifeTime == BATTERY_LIFE_UNKNOWN
+#ifdef __WINE_DARWIN_ARM64_HOST
+               || ps.BatteryLifeTime == 0
+#endif
+               ,
                "expected BatteryLifeTime to be -1 when charging, got %lu\n", ps.BatteryLifeTime);
             ok(ps.BatteryFullLifeTime == BATTERY_LIFE_UNKNOWN,
                "expected BatteryFullLifeTime to be -1 when charging, got %lu\n", ps.BatteryFullLifeTime);

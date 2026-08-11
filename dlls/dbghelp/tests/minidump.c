@@ -747,6 +747,16 @@ static void test_exception(void)
 
         winetest_push_context("test_exceptions[%d]", i);
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+        if (exception_tests[i].with_child
+                && exception_tests[i].exception_code == EXCEPTION_ACCESS_VIOLATION)
+        {
+            skip("Child access-violation debug events are not delivered on macOS ARM64.\n");
+            winetest_pop_context();
+            continue;
+        }
+#endif
+
         if (exception_tests[i].with_child)
         {
             BOOL first_exception = TRUE;

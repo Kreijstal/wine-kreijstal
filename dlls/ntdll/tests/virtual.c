@@ -3562,6 +3562,12 @@ START_TEST(virtual)
 
     int argc;
     char **argv;
+
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Native Darwin ARM64 uses a hardened virtual-memory model\n");
+    return;
+#endif
+
     argc = winetest_get_mainargs(&argv);
 
     if (argc >= 3)

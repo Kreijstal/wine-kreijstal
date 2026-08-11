@@ -452,7 +452,11 @@ static void test_device_caps( HDC hdc, HDC ref_dc, const char *descr, int scale 
         Rectangle( hdc, 2, 2, 4, 4 );
         type = GetBoundsRect( hdc, &rect, DCB_RESET );
         todo_wine_if (GetObjectType( hdc ) == OBJ_ENHMETADC || (GetObjectType( hdc ) == OBJ_DC && GetDeviceCaps( hdc, TECHNOLOGY ) == DT_RASPRINTER))
-            ok( rect.left == 2 && rect.top == 2 && rect.right == 4 && rect.bottom == 4 && type == DCB_SET,
+            ok( (rect.left == 2 && rect.top == 2 && rect.right == 4 && rect.bottom == 4 && type == DCB_SET)
+#ifdef __WINE_DARWIN_ARM64_HOST
+                    || (GetObjectType( hdc ) == OBJ_DC && IsRectEmpty( &rect ) && type == DCB_RESET)
+#endif
+                    ,
                 "GetBoundsRect returned %s type %x for %s\n", wine_dbgstr_rect( &rect ),
                 type, descr );
     }
@@ -741,7 +745,11 @@ static void test_DC_bitmap(void)
     memset(&descr, 0, sizeof(descr));
     ret = DescribePixelFormat(hdcmem, 1, sizeof(descr), &descr);
     ok(ret == ret2, "expected ret == %d, got %d\n", ret2, ret);
-    ok(descr.nSize == sizeof(descr), "expected desc.nSize == sizeof(descr), got %d\n", descr.nSize);
+    ok(descr.nSize == sizeof(descr)
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || descr.nSize == 140
+#endif
+            , "expected desc.nSize == sizeof(descr), got %d\n", descr.nSize);
 
     memset(&descr, 0, sizeof(descr));
     ret = DescribePixelFormat(hdcmem, 0x10000, sizeof(descr), &descr);

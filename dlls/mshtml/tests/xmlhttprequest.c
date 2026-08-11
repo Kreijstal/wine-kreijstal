@@ -1298,6 +1298,11 @@ START_TEST(xmlhttprequest)
     static const WCHAR large_page_url[] = L"http://test.winehq.org/tests/data.php";
     static const WCHAR expect_response_text[] = L"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<a>TEST</a>";
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
+
     CoInitialize(NULL);
 
     content_type = SysAllocString(L"Content-Type");

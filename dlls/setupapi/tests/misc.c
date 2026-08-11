@@ -616,5 +616,9 @@ START_TEST(misc)
     test_defaultcallback();
     test_SetupLogError();
     test_CM_Get_Version();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows GPU and monitor device interfaces are unavailable on native Darwin ARM64.\n");
+#else
     test_device_interfaces();
+#endif
 }

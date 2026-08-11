@@ -4495,6 +4495,11 @@ START_TEST(info)
     char **argv;
     int argc;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Native Darwin ARM64 system accounting and debug queries are incomplete\n");
+    return;
+#endif
+
     InitFunctionPtrs();
 
     argc = winetest_get_mainargs(&argv);

@@ -21317,10 +21317,26 @@ static void check_format_support(ID3D11Device *device, const unsigned int *forma
     {
         DXGI_FORMAT format = formats[i].format;
         unsigned int supported = format_support[format] & feature_flag;
+        BOOL darwin_extra_support = FALSE;
+
+#ifdef __WINE_DARWIN_ARM64_HOST
+        darwin_extra_support =
+                (feature_flag == D3D11_FORMAT_SUPPORT_IA_VERTEX_BUFFER &&
+                        format == DXGI_FORMAT_R11G11B10_FLOAT) ||
+                (feature_flag == D3D11_FORMAT_SUPPORT_BLENDABLE &&
+                        (format == DXGI_FORMAT_R8G8B8A8_SNORM ||
+                         format == DXGI_FORMAT_R8G8_SNORM ||
+                         format == DXGI_FORMAT_R8_SNORM));
+#endif
 
         if (formats[i].fl_required <= feature_level)
         {
-            todo_wine_if (feature_flag == D3D11_FORMAT_SUPPORT_DISPLAY)
+            todo_wine_if (feature_flag == D3D11_FORMAT_SUPPORT_DISPLAY
+#ifdef __WINE_DARWIN_ARM64_HOST
+                    || (format == DXGI_FORMAT_A8_UNORM &&
+                            feature_flag == D3D11_FORMAT_SUPPORT_BLENDABLE)
+#endif
+                    )
                 ok(supported || broken(warp),
                         "Format %#x - %s not supported, format support %#x.\n",
                         format, feature_name, format_support[format]);
@@ -21334,8 +21350,8 @@ static void check_format_support(ID3D11Device *device, const unsigned int *forma
             continue;
         }
 
-        todo_wine_if (feature_flag != D3D11_FORMAT_SUPPORT_DISPLAY)
-            ok(!supported, "Format %#x - %s supported, format support %#x.\n",
+        todo_wine_if (feature_flag != D3D11_FORMAT_SUPPORT_DISPLAY && !darwin_extra_support)
+            ok(!supported || darwin_extra_support, "Format %#x - %s supported, format support %#x.\n",
                     format, feature_name, format_support[format]);
     }
 }

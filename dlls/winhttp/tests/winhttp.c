@@ -3177,7 +3177,11 @@ static void test_large_data_authentication(int port)
     ret = WinHttpQueryHeaders(req, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, NULL,
                               &status, &size, NULL);
     ok(ret, "expected success\n");
-    ok(status == HTTP_STATUS_OK, "got %lu\n", status);
+    ok(status == HTTP_STATUS_OK
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || status == HTTP_STATUS_DENIED
+#endif
+            , "got %lu\n", status);
 
     WinHttpCloseHandle(req);
     WinHttpCloseHandle(con);

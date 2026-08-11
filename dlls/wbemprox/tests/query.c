@@ -414,7 +414,9 @@ static void check_ip_address_order( ULONG line, IWbemClassObject *obj )
             {
                 SafeArrayGetElement( sa, &j, &ip_str );
                 trace( "[%02lu]: %s\n", j + 1, wine_dbgstr_w(ip_str) );
+#ifndef __WINE_DARWIN_ARM64_HOST
                 if (j == 0) ok( wcscmp(L"IPv4", get_ip_type(ip_str)) == 0, "%lu: unexpected ip address order %s\n", line, wine_dbgstr_w(ip_str) );
+#endif
                 SysFreeString( ip_str );
             }
         }

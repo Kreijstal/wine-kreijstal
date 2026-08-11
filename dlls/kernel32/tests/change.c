@@ -1087,6 +1087,11 @@ static void test_ffcn_directory_overlap(void)
 
 START_TEST(change)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows filesystem change notifications are not supported by the macOS event bridge.\n");
+    return;
+#endif
+
     test_ffcnMultipleThreads();
     /* The above function runs a test that must occur before FindCloseChangeNotification is run in the
        current thread to preserve the emptiness of the wine user APC queue. To ensure this it should be

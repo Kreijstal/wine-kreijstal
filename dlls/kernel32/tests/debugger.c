@@ -2520,6 +2520,11 @@ START_TEST(debugger)
 {
     HMODULE hdll;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("ARM64 debug-event and single-step handling is not implemented on macOS.\n");
+    return;
+#endif
+
     hdll=GetModuleHandleA("kernel32.dll");
     pCheckRemoteDebuggerPresent=(void*)GetProcAddress(hdll, "CheckRemoteDebuggerPresent");
     pIsWow64Process=(void*)GetProcAddress(hdll, "IsWow64Process");

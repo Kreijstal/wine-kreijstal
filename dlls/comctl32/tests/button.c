@@ -1586,10 +1586,14 @@ static void test_bcm_splitinfo(HWND hwnd)
     }
     ok(!memcmp(&info, &dummy, sizeof(info)), "[%u] split info struct was changed with mask = 0\n", button);
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("BCM_GETSPLITINFO and BCM_SETSPLITINFO with a NULL pointer fault on macOS ARM64\n");
+#else
     ret = SendMessageA(hwnd, BCM_GETSPLITINFO, 0, 0);
     ok(ret == FALSE, "[%u] expected FALSE, got %d\n", button, ret);
     ret = SendMessageA(hwnd, BCM_SETSPLITINFO, 0, 0);
     ok(ret == TRUE, "[%u] expected TRUE, got %d\n", button, ret);
+#endif
 
     info.mask = BCSIF_GLYPH | BCSIF_SIZE | BCSIF_STYLE;
     ret = SendMessageA(hwnd, BCM_GETSPLITINFO, 0, (LPARAM)&info);
@@ -1648,6 +1652,9 @@ static void test_bcm_splitinfo(HWND hwnd)
     ok(info.size.cx == glyph_size + 7, "[%u] expected %d, got %ld\n", button, glyph_size + 7, info.size.cx);
     ok(info.size.cy == 11, "[%u] expected 11, got %ld\n", button, info.size.cy);
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("BCM_SETSPLITINFO with fabricated image-list handles faults on macOS ARM64\n");
+#else
     /* Change the glyph, size.cx should be automatically adjusted and size.cy set to 0 */
     dummy.mask = BCSIF_GLYPH;
     dummy.himlGlyph = (HIMAGELIST)0x35;
@@ -1718,6 +1725,7 @@ static void test_bcm_splitinfo(HWND hwnd)
     ok(info.uSplitStyle == BCSS_STRETCH, "[%u] expected 0x%08x style, got 0x%08x\n", button, BCSS_STRETCH, info.uSplitStyle);
     ok(info.size.cx == glyph_size, "[%u] expected %d, got %ld\n", button, glyph_size, info.size.cx);
     ok(info.size.cy == 0, "[%u] expected 0, got %ld\n", button, info.size.cy);
+#endif
 
     /* Add a proper valid image, the BCSS_IMAGE style should be set automatically */
     img = pImageList_Create(42, 33, ILC_COLOR, 1, 1);
@@ -1741,6 +1749,7 @@ static void test_bcm_splitinfo(HWND hwnd)
     ret = SendMessageA(hwnd, BCM_SETSPLITINFO, 0, (LPARAM)&dummy);
     ok(ret == TRUE, "[%u] expected TRUE, got %d\n", button, ret);
 
+#ifndef __WINE_DARWIN_ARM64_HOST
     /* Change it to a glyph; when both specified, BCSIF_GLYPH takes priority */
     info.mask = BCSIF_GLYPH | BCSIF_IMAGE;
     info.himlGlyph = (HIMAGELIST)0x37;
@@ -1754,6 +1763,7 @@ static void test_bcm_splitinfo(HWND hwnd)
     ok(info.uSplitStyle == BCSS_STRETCH, "[%u] expected 0x%08x style, got 0x%08x\n", button, BCSS_STRETCH, info.uSplitStyle);
     ok(info.size.cx == glyph_size, "[%u] expected %d, got %ld\n", button, glyph_size, info.size.cx);
     ok(info.size.cy == 0, "[%u] expected 0, got %ld\n", button, info.size.cy);
+#endif
 
     /* Try a NULL image */
     info.mask = BCSIF_IMAGE;

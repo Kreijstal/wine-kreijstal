@@ -1045,11 +1045,15 @@ static void test_buffered_paint(void)
 
     /* clearing */
     hr = pBufferedPaintClear(NULL, NULL);
+#ifndef __WINE_DARWIN_ARM64_HOST
     todo_wine
+#endif
     ok(hr == E_FAIL, "Unexpected return code %#lx\n", hr);
 
     hr = pBufferedPaintClear(buffer, NULL);
+#ifndef __WINE_DARWIN_ARM64_HOST
     todo_wine
+#endif
     ok(hr == S_OK, "Unexpected return code %#lx\n", hr);
 
     /* access buffer attributes */

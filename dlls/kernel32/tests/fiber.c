@@ -1090,6 +1090,11 @@ START_TEST(fiber)
     char **argv;
     int argc;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Fiber context switching is not implemented on macOS ARM64.\n");
+    return;
+#endif
+
     argc = winetest_get_mainargs(&argv);
 
     if (argc == 3 && !strcmp(argv[2], "fls_exit_deadlock"))

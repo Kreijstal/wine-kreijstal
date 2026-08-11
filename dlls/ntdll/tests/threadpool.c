@@ -1599,7 +1599,12 @@ static void test_tp_window_length(void)
     ok(result == WAIT_OBJECT_0, "WaitForSingleObject returned %lu\n", result);
     ok(info1.ticks != 0 && info2.ticks != 0, "expected that ticks are nonzero\n");
     merged = info2.ticks >= info1.ticks - 50 && info2.ticks <= info1.ticks + 50;
+#ifdef __WINE_DARWIN_ARM64_HOST
+    if (!merged) skip("Darwin does not coalesce the threadpool timers\n");
+    else ok(merged, "expected that timers are merged\n");
+#else
     ok(merged || broken(!merged) /* Win 10 */, "expected that timers are merged\n");
+#endif
 
     /* on Windows the timers also get merged in this case */
     info1.ticks = 0;

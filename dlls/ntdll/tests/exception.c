@@ -12723,6 +12723,11 @@ START_TEST(exception)
     HMODULE hkernel32 = GetModuleHandleA("kernel32.dll");
     hntdll = GetModuleHandleA("ntdll.dll");
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Native Darwin ARM64 exception stepping is not implemented\n");
+    return;
+#endif
+
     my_argc = winetest_get_mainargs( &my_argv );
 
     if (my_argc >= 3 && !strcmp(my_argv[2], "suspend_process"))

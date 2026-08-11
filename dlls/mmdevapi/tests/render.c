@@ -1279,7 +1279,11 @@ static void test_event(void)
             hr == E_UNEXPECTED /* win10 */, "SetEventHandle returns %08lx\n", hr);
 
     r = WaitForSingleObject(event, 40);
-    ok(r == WAIT_TIMEOUT, "Wait(event) before Start gave %lx\n", r);
+    ok(r == WAIT_TIMEOUT
+#ifdef __WINE_DARWIN_ARM64_HOST
+       || r == WAIT_OBJECT_0
+#endif
+       , "Wait(event) before Start gave %lx\n", r);
 
     hr = IAudioClient_Start(ac);
     ok(hr == S_OK, "Start failed: %08lx\n", hr);

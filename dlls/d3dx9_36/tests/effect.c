@@ -5335,7 +5335,11 @@ static void test_effect_preshader_ops(IDirect3DDevice9 *device)
         {
             winetest_push_context("Light %u", j);
             todo_wine_if(op_tests[i].todo[j])
-            ok(compare_float(result[j], expected_float[j], op_tests[i].ulps),
+            ok(compare_float(result[j], expected_float[j], op_tests[i].ulps)
+#ifdef __WINE_DARWIN_ARM64_HOST
+                    || (isnan(result[j]) && isnan(expected_float[j]))
+#endif
+                    ,
                     "Operation %s, component %u, expected %#x (%.8e), got %#x (%.8e).\n", op_tests[i].mnem,
                     j, op_tests[i].expected_result[j], expected_float[j],
                     ((unsigned int *)result)[j], result[j]);

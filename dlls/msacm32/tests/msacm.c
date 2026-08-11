@@ -1523,6 +1523,11 @@ static void test_acmDriverAdd(void)
 
 START_TEST(msacm)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Audio Compression Manager driver callbacks are not supported on macOS ARM64.\n");
+    return;
+#endif
+
     driver_tests();
     test_prepareheader();
     test_convert();

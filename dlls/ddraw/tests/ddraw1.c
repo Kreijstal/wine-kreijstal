@@ -17082,8 +17082,17 @@ START_TEST(ddraw1)
     test_wndproc();
     test_window_style();
     test_redundant_mode_set();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode cooperative-level tests are not supported on macOS ARM64.\n");
+    if (0)
+    {
+        test_coop_level_mode_set();
+        test_coop_level_mode_set_multi();
+    }
+#else
     test_coop_level_mode_set();
     test_coop_level_mode_set_multi();
+#endif
     test_initialize();
     test_coop_level_surf_create();
     test_coop_level_multi_window();
@@ -17096,7 +17105,12 @@ START_TEST(ddraw1)
     test_surface_discard();
     test_flip();
     test_sysmem_overlay();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("8-bpp primary-palette tests are not supported on macOS ARM64.\n");
+    if (0) test_primary_palette();
+#else
     test_primary_palette();
+#endif
     test_surface_attachment();
     test_pixel_format();
     test_create_surface_pitch();
@@ -17106,8 +17120,17 @@ START_TEST(ddraw1)
     test_material();
     test_lighting();
     test_specular_lighting();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("8-bpp palette display-mode tests are not supported on macOS ARM64.\n");
+    if (0)
+    {
+        test_palette_gdi();
+        test_palette_alpha();
+    }
+#else
     test_palette_gdi();
     test_palette_alpha();
+#endif
     test_lost_device();
     test_surface_desc_lock();
     test_texturemapblend();
@@ -17122,7 +17145,12 @@ START_TEST(ddraw1)
     test_overlay_rect();
     test_blt();
     test_blt_z_alpha();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive fullscreen cross-device blit tests are not supported on macOS ARM64.\n");
+    if (0) test_cross_device_blt();
+#else
     test_cross_device_blt();
+#endif
     test_getdc();
     test_transform_vertices();
     test_display_mode_surface_pixel_format();

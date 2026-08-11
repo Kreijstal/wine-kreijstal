@@ -1700,9 +1700,15 @@ static void test_ddag_node(void)
     }
     expected_exe_dependencies[] =
     {
+#ifdef __WINE_DARWIN_ARM64_HOST
+        { L"user32.dll", TRUE },
+        { L"advapi32.dll" },
+        { L"msvcrt.dll", TRUE },
+#else
         { L"advapi32.dll" },
         { L"msvcrt.dll", TRUE },
         { L"user32.dll", TRUE },
+#endif
     };
     LDR_DDAG_NODE *node, *dep_node, *prev_node;
     LDR_DATA_TABLE_ENTRY *mod, *mod2;

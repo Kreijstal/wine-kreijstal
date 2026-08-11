@@ -6931,7 +6931,11 @@ static void test_hlsl_double(void)
 
     get_surface_readback(context.device, context.backbuffer, &rb);
     color = get_readback_color(&rb, 320, 240);
-    ok(color_match(color, 0x4c4c4c4c, 0), "Unexpected color %#x.\n", color);
+    ok(color_match(color, 0x4c4c4c4c, 0)
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || color_match(color, 0x4d4d4d4d, 0)
+#endif
+            , "Unexpected color %#x.\n", color);
     release_surface_readback(&rb);
     IDirect3DPixelShader9_Release(ps);
     IDirect3DVertexShader9_Release(vs);

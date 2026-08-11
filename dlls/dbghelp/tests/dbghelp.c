@@ -944,8 +944,13 @@ static void test_loaded_modules(void)
     if (!strcmp(winetest_platform, "wine"))
     {
         unsigned count = get_native_module_count(pi.hProcess);
+#ifdef __WINE_DARWIN_ARM64_HOST
+        skip("Native Mach-O modules are not exposed by this macOS ARM64 PE-only build.\n");
+        (void)count;
+#else
         todo_wine_if(pcskind == PCSKIND_WOW64)
         ok(count > 0, "Didn't find any native (ELF/Macho) modules\n");
+#endif
     }
 
     SymCleanup(pi.hProcess);

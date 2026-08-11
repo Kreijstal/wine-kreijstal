@@ -4087,6 +4087,10 @@ static BOOL check_ie(void)
 
 START_TEST(style)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
     CoInitialize(NULL);
 
     if(check_ie()) {

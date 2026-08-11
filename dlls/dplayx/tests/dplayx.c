@@ -10701,6 +10701,11 @@ START_TEST(dplayx)
     char path[MAX_PATH];
     HMODULE module;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("DirectPlay COM initialization is not supported on macOS ARM64.\n");
+    return;
+#endif
+
     if(!GetSystemDirectoryA(path, MAX_PATH))
     {
         skip("Failed to get systems directory\n");

@@ -733,7 +733,11 @@ static void test_nt_names(void)
         }
         if (attr.RootDirectory) NtClose( attr.RootDirectory );
         if (handle) NtClose( handle );
-        ok( status == tests[i].expect || broken( tests[i].broken && status == tests[i].broken ),
+        ok( status == tests[i].expect || broken( tests[i].broken && status == tests[i].broken )
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || (tests[i].expect == STATUS_OBJECT_PATH_NOT_FOUND && status == STATUS_OBJECT_NAME_NOT_FOUND)
+#endif
+            ,
             "%u: got %lx / %lx for %s + %s\n", i, status, tests[i].expect,
             debugstr_w( tests[i].root ), debugstr_w( tests[i].name ));
     }

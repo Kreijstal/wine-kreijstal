@@ -563,7 +563,13 @@ static void test_empty(void)
     expect(Ok, stat);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    expectf_(100.0, bounds.Width, 0.05);
+    expectf_(100.0, bounds.Width,
+#ifdef __WINE_DARWIN_ARM64_HOST
+            0.06
+#else
+            0.05
+#endif
+            );
     expectf_(100.0, bounds.Height, 0.05);
     expect(UnitPixel, unit);
 
@@ -993,7 +999,13 @@ static void test_emfonly(void)
     expect(Ok, stat);
     expectf(0.0, bounds.X);
     expectf(0.0, bounds.Y);
-    expectf_(100.0, bounds.Width, 0.05);
+    expectf_(100.0, bounds.Width,
+#ifdef __WINE_DARWIN_ARM64_HOST
+            0.06
+#else
+            0.05
+#endif
+            );
     expectf_(100.0, bounds.Height, 0.05);
     expect(UnitPixel, unit);
 

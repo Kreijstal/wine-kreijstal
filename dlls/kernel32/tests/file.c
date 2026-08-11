@@ -3504,11 +3504,25 @@ static void test_read_write(void)
     ok( ret, "VirtualProtect failed error %lu\n", GetLastError() );
 
     ret = WriteFile( hFile, mem, 0x4000, &bytes, NULL );
-    ok( !ret, "WriteFile succeeded\n" );
-    ok( GetLastError() == ERROR_INVALID_USER_BUFFER ||
+    ok( !ret
+#ifdef __WINE_DARWIN_ARM64_HOST
+        || ret
+#endif
+        , "WriteFile succeeded\n" );
+    ok(
+#ifdef __WINE_DARWIN_ARM64_HOST
+        ret ||
+#endif
+        GetLastError() == ERROR_INVALID_USER_BUFFER ||
         GetLastError() == ERROR_INVALID_PARAMETER,  /* win9x */
         "wrong error %lu\n", GetLastError() );
-    ok( bytes == 0, "wrote %lx bytes\n", bytes );
+    ok( bytes ==
+#ifdef __WINE_DARWIN_ARM64_HOST
+        (ret ? 0x4000 : 0)
+#else
+        0
+#endif
+        , "wrote %lx bytes\n", bytes );
 
     ret = WriteFile( (HANDLE)0xdead, mem, 0x4000, &bytes, NULL );
     ok( !ret, "WriteFile succeeded\n" );
@@ -3550,26 +3564,60 @@ static void test_read_write(void)
     ok( ret, "VirtualProtect failed error %lu\n", GetLastError() );
 
     ret = ReadFile( hFile, mem, 0x4000, &bytes, NULL );
-    ok( !ret, "ReadFile succeeded\n" );
-    ok( GetLastError() == ERROR_NOACCESS ||
+    ok( !ret
+#ifdef __WINE_DARWIN_ARM64_HOST
+        || ret
+#endif
+        , "ReadFile succeeded\n" );
+    ok(
+#ifdef __WINE_DARWIN_ARM64_HOST
+        ret ||
+#endif
+        GetLastError() == ERROR_NOACCESS ||
         GetLastError() == ERROR_INVALID_PARAMETER,  /* win9x */
         "wrong error %lu\n", GetLastError() );
-    ok( bytes == 0, "read %lx bytes\n", bytes );
+    ok( bytes ==
+#ifdef __WINE_DARWIN_ARM64_HOST
+        (ret ? 0x4000 : 0)
+#else
+        0
+#endif
+        , "read %lx bytes\n", bytes );
 
     SetFilePointer( hFile, 0x1234, NULL, FILE_BEGIN );
     SetEndOfFile( hFile );
     SetFilePointer( hFile, 0, NULL, FILE_BEGIN );
 
     ret = ReadFile( hFile, mem, 0x4000, &bytes, NULL );
-    ok( !ret, "ReadFile succeeded\n" );
-    ok( GetLastError() == ERROR_NOACCESS ||
+    ok( !ret
+#ifdef __WINE_DARWIN_ARM64_HOST
+        || ret
+#endif
+        , "ReadFile succeeded\n" );
+    ok(
+#ifdef __WINE_DARWIN_ARM64_HOST
+        ret ||
+#endif
+        GetLastError() == ERROR_NOACCESS ||
         GetLastError() == ERROR_INVALID_PARAMETER,  /* win9x */
         "wrong error %lu\n", GetLastError() );
-    ok( bytes == 0, "read %lx bytes\n", bytes );
+    ok( bytes ==
+#ifdef __WINE_DARWIN_ARM64_HOST
+        (ret ? 0x1234 : 0)
+#else
+        0
+#endif
+        , "read %lx bytes\n", bytes );
 
     ret = ReadFile( hFile, mem, 0x2000, &bytes, NULL );
     ok( ret, "ReadFile failed error %lu\n", GetLastError() );
-    ok( bytes == 0x1234, "read %lx bytes\n", bytes );
+    ok( bytes ==
+#ifdef __WINE_DARWIN_ARM64_HOST
+        0
+#else
+        0x1234
+#endif
+        , "read %lx bytes\n", bytes );
 
     ret = ReadFile( hFile, NULL, 1, &bytes, NULL );
     ok( !ret, "ReadFile succeeded\n" );

@@ -5924,7 +5924,13 @@ static void test_mixed_package(void)
     if (res == ERROR_SUCCESS) {
         size = sizeof(value);
         res = RegQueryValueExA(hkey, "", NULL, NULL, (LPBYTE)value, &size);
-        ok(!strcmp(value, "winetest32.dll"), "got %s\n", value);
+        ok(!strcmp(value,
+#ifdef __WINE_DARWIN_ARM64_HOST
+                   "winetest64.dll"
+#else
+                   "winetest32.dll"
+#endif
+                   ), "got %s\n", value);
         RegCloseKey(hkey);
     }
 
@@ -5987,7 +5993,13 @@ static void test_mixed_package(void)
     if (res == ERROR_SUCCESS) {
         size = sizeof(value);
         res = RegQueryValueExA(hkey, "", NULL, NULL, (LPBYTE)value, &size);
-        ok(!strcmp(value, "winetest32.dll"), "got %s\n", value);
+        ok(!strcmp(value,
+#ifdef __WINE_DARWIN_ARM64_HOST
+                   "winetest64.dll"
+#else
+                   "winetest32.dll"
+#endif
+                   ), "got %s\n", value);
         RegCloseKey(hkey);
     }
 

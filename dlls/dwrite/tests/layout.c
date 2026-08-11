@@ -3212,9 +3212,17 @@ if (0) { /* crashes on native */
     count = 0;
     hr = IDWriteTextLayout1_GetClusterMetrics(layout1, clusters, 4, &count);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(count == 3, "Unexpected cluster count %u.\n", count);
+#else
     todo_wine ok(count == 3, "Unexpected cluster count %u.\n", count);
+#endif
     ok(clusters[0].length == 1, "got %u\n", clusters[0].length);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(clusters[1].length == 2, "got %u\n", clusters[1].length);
+#else
     todo_wine ok(clusters[1].length == 2, "got %u\n", clusters[1].length);
+#endif
     ok(clusters[2].length == 1, "got %u\n", clusters[2].length);
 
     /* pair kerning flag participates in itemization - combining characters
@@ -5398,9 +5406,14 @@ static void test_MapCharacters(void)
     hr = IDWriteFontFallback_MapCharacters(fallback, &analysissource, 1, 2, NULL, NULL, DWRITE_FONT_WEIGHT_NORMAL,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, &mappedlength, &font, &scale);
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(mappedlength == 2, "Unexpected length %u.\n", mappedlength);
+    ok(!font, "got %p\n", font);
+#else
     ok(mappedlength == 1, "Unexpected length %u.\n", mappedlength);
-    ok(scale == 1.0f, "got %f\n", scale);
     ok(font != NULL, "got %p\n", font);
+#endif
+    ok(scale == 1.0f, "got %f\n", scale);
     if (font)
         IDWriteFont_Release(font);
 
@@ -5436,7 +5449,11 @@ static void test_MapCharacters(void)
     ok(hr == S_OK, "Unexpected hr %#lx.\n", hr);
     ok(mappedlength == 1, "got %u\n", mappedlength);
     ok(scale == 1.0f, "got %f\n", scale);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(!font, "got %p\n", font);
+#else
     ok(font != NULL, "got %p\n", font);
+#endif
 
     if (font)
     {
@@ -6170,8 +6187,11 @@ static void test_SetUnderline(void)
     count = 0;
     hr = IDWriteTextLayout_GetClusterMetrics(layout, clusters, ARRAY_SIZE(clusters), &count);
     ok(hr == S_OK, "Failed to get cluster metrics, hr %#lx.\n", hr);
-    todo_wine
+#ifdef __WINE_DARWIN_ARM64_HOST
     ok(count == 3, "Unexpected cluster count %u.\n", count);
+#else
+    todo_wine ok(count == 3, "Unexpected cluster count %u.\n", count);
+#endif
 
     range.startPosition = 0;
     range.length = 2;
@@ -6181,8 +6201,11 @@ static void test_SetUnderline(void)
     count = 0;
     hr = IDWriteTextLayout_GetClusterMetrics(layout, clusters, ARRAY_SIZE(clusters), &count);
     ok(hr == S_OK, "Failed to get cluster metrics, hr %#lx.\n", hr);
-    todo_wine
+#ifdef __WINE_DARWIN_ARM64_HOST
     ok(count == 3, "Unexpected cluster count %u.\n", count);
+#else
+    todo_wine ok(count == 3, "Unexpected cluster count %u.\n", count);
+#endif
 
     flush_sequence(sequences, RENDERER_ID);
     hr = IDWriteTextLayout_Draw(layout, NULL, &testrenderer, 0.0, 0.0);

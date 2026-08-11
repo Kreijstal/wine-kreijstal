@@ -5414,6 +5414,11 @@ START_TEST(devinst)
     struct testsign_context ctx;
     HKEY hkey;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows driver-store and device-install semantics are unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     pDriverStoreAddDriverPackageA = (void *)GetProcAddress(module, "DriverStoreAddDriverPackageA");
     pDriverStoreFindDriverPackageA = (void *)GetProcAddress(module, "DriverStoreFindDriverPackageA");
     pDriverStoreDeleteDriverPackageA = (void *)GetProcAddress(module, "DriverStoreDeleteDriverPackageA");

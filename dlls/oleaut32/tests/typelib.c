@@ -8435,6 +8435,14 @@ static void test_stub(void)
 
             /* Is our side interface key affected by above operation? */
             lr = RegOpenKeyExA(HKEY_CLASSES_ROOT, "Interface\\{3b9ff02f-9675-4861-b781-ceaea4782acc}", 0, KEY_READ | side, &hkey);
+#ifdef __WINE_DARWIN_ARM64_HOST
+            ok(lr == ERROR_FILE_NOT_FOUND, "got wrong return code: %lu, side: %04lx\n", lr, side);
+            if (lr == ERROR_FILE_NOT_FOUND)
+            {
+                skip("The native ARM64-only prefix has a shared registry view\n");
+                goto next;
+            }
+#else
             ok(lr == ERROR_SUCCESS || broken(lr == ERROR_FILE_NOT_FOUND), "got wrong return code: %lu, side: %04lx\n", lr, side);
             if (lr == ERROR_FILE_NOT_FOUND)
             {
@@ -8442,6 +8450,7 @@ static void test_stub(void)
                 win_skip("Registry reflection is enabled on this platform.\n");
                 goto next;
             }
+#endif
             RegCloseKey(hkey);
 
             /* Opposite side typelib key still exists */

@@ -4524,7 +4524,14 @@ static void test_com_aggregation(void)
 
 START_TEST(webbrowser)
 {
-    HMODULE ieframe = LoadLibraryW(L"ieframe.dll");
+    HMODULE ieframe;
+
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Legacy IE web browser hosting is not supported on macOS ARM64.\n");
+    return;
+#endif
+
+    ieframe = LoadLibraryW(L"ieframe.dll");
 
     pSetQueryNetSessionCount = (void*)GetProcAddress(ieframe, "SetQueryNetSessionCount");
 

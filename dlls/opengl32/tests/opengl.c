@@ -5310,6 +5310,11 @@ START_TEST(opengl)
     HWND hwnd;
     HDC hdc;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The native Darwin backend does not expose compatible WGL pixel formats\n");
+    return;
+#endif
+
     pD3DKMTCreateDCFromMemory = (void *)GetProcAddress( gdi32, "D3DKMTCreateDCFromMemory" );
     pD3DKMTDestroyDCFromMemory = (void *)GetProcAddress( gdi32, "D3DKMTDestroyDCFromMemory" );
 

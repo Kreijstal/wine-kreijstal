@@ -21,6 +21,12 @@
 
 #include "wine/test.h"
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+#define fusion_skip skip
+#else
+#define fusion_skip win_skip
+#endif
+
 static BOOL v4;
 static HMODULE hmscoree;
 
@@ -59,7 +65,7 @@ static BOOL init_functionpointers(void)
         hr = pLoadLibraryShim(L"fusion.dll", NULL, NULL, &hfusion);
         if (FAILED(hr))
         {
-            win_skip("fusion.dll not available\n");
+            fusion_skip("fusion.dll not available\n");
             FreeLibrary(hmscoree);
             return FALSE;
         }

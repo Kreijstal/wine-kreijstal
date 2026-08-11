@@ -6737,6 +6737,11 @@ START_TEST(input)
     if (argc >= 3 && !strcmp( argv[2], "test_SetFocus" ))
         return test_SetFocus_process();
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Windows keyboard, mouse, and raw-input semantics are unavailable on native Darwin ARM64.\n");
+    return;
+#endif
+
     run_in_desktop( argv, "test_input_desktop", 1 );
     test_keynames();
     test_key_map();

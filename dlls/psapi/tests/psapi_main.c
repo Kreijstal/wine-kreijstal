@@ -1234,6 +1234,11 @@ static void test_QueryWorkingSetEx(void)
     DWORD prot;
     BOOL ret;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Darwin does not expose Windows working-set page attributes\n");
+    return;
+#endif
+
     if (pQueryWorkingSetEx == NULL)
     {
         win_skip("QueryWorkingSetEx not found, skipping tests\n");

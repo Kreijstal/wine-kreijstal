@@ -13920,6 +13920,10 @@ static void check_ie(void)
 START_TEST(dom)
 {
     HMODULE hkernel32 = GetModuleHandleA("kernel32.dll");
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
     pLCIDToLocaleName = (void*)GetProcAddress(hkernel32, "LCIDToLocaleName");
     pGetUserDefaultUILanguage = (void*)GetProcAddress(hkernel32, "GetUserDefaultUILanguage");
 

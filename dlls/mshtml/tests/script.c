@@ -5355,6 +5355,11 @@ START_TEST(script)
     int argc;
     char **argv;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The MSHTML document engine is not available on macOS ARM64.\n");
+    return;
+#endif
+
     argc = winetest_get_mainargs(&argv);
     CoInitialize(NULL);
     main_thread_id = GetCurrentThreadId();

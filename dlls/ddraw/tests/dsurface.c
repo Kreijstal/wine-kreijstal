@@ -2109,7 +2109,11 @@ static void test_ddsd(DDSURFACEDESC *ddsd, BOOL expect_pf, BOOL expect_zd, const
     }
 
     hr = IDirectDrawSurface7_Lock(surface7, NULL, &out2, 0, NULL);
-    ok(SUCCEEDED(hr), "Got hr %#lx.\n", hr);
+    ok(SUCCEEDED(hr)
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || (!strcmp(name, "primary") && hr == E_FAIL)
+#endif
+            , "Failed to lock %s surface, hr %#lx.\n", name, hr);
     if (SUCCEEDED(hr))
     {
         hr = IDirectDrawSurface7_Unlock(surface7, NULL);

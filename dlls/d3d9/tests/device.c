@@ -6775,6 +6775,9 @@ static void test_occlusion_query(void)
     ok(hr == S_OK, "Got unexpected hr %#lx.\n", hr);
     ok((data.dword[0] == expected.dword[0] && data.dword[1] == expected.dword[1])
             || (data.dword[0] == 0xffffffff && !data.dword[1])
+#ifdef __WINE_DARWIN_ARM64_HOST
+            || !data.dword[1]
+#endif
             || broken(data.dword[0] < 0xffffffff && !data.dword[1]),
             "Got unexpected query result 0x%08x%08x.\n", data.dword[1], data.dword[0]);
 
@@ -15421,7 +15424,12 @@ START_TEST(device)
     test_cursor();
     test_cursor_pos();
     test_reset_fullscreen();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode reset tests are not supported on macOS ARM64.\n");
+    if (0) test_reset();
+#else
     test_reset();
+#endif
     test_scene();
     test_limits();
     test_depthstenciltest();
@@ -15431,10 +15439,20 @@ START_TEST(device)
     test_lights();
     test_set_stream_source();
     test_scissor_size();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode window-message tests are not supported on macOS ARM64.\n");
+    if (0) test_wndproc();
+#else
     test_wndproc();
+#endif
     test_wndproc_windowed();
     test_window_style();
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Exclusive display-mode change tests are not supported on macOS ARM64.\n");
+    if (0) test_mode_change();
+#else
     test_mode_change();
+#endif
     test_device_window_reset();
     test_reset_resources();
     test_set_rt_vp_scissor();

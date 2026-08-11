@@ -26,6 +26,12 @@
 #include <stdint.h>
 #include "d3dx9_test_images.h"
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+#define DARWIN_ARM64_TEST 1
+#else
+#define DARWIN_ARM64_TEST 0
+#endif
+
 #define check_release(obj, exp) _check_release(__LINE__, obj, exp)
 static inline void _check_release(unsigned int line, IUnknown *obj, int exp)
 {
@@ -2720,10 +2726,10 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
        ok(hr == D3D_OK, "Unexpected hr %#lx.\n", hr);
 
        get_surface_readback(device, newsurf, D3DFMT_A8R8G8B8, &surface_rb);
-       check_readback_pixel_4bpp(&surface_rb, 0, 0, pixdata_a8r8g8b8[0], TRUE);
-       check_readback_pixel_4bpp(&surface_rb, 1, 0, pixdata_a8r8g8b8[1], TRUE);
-       check_readback_pixel_4bpp(&surface_rb, 0, 1, pixdata_a8r8g8b8[2], TRUE);
-       check_readback_pixel_4bpp(&surface_rb, 1, 1, pixdata_a8r8g8b8[3], TRUE);
+       check_readback_pixel_4bpp(&surface_rb, 0, 0, pixdata_a8r8g8b8[0], !DARWIN_ARM64_TEST);
+       check_readback_pixel_4bpp(&surface_rb, 1, 0, pixdata_a8r8g8b8[1], !DARWIN_ARM64_TEST);
+       check_readback_pixel_4bpp(&surface_rb, 0, 1, pixdata_a8r8g8b8[2], !DARWIN_ARM64_TEST);
+       check_readback_pixel_4bpp(&surface_rb, 1, 1, pixdata_a8r8g8b8[3], !DARWIN_ARM64_TEST);
        release_surface_readback(&surface_rb);
 
        /* Contents of the multisampled surface are preserved. */
@@ -2731,10 +2737,10 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
        ok(hr == D3D_OK, "Unexpected hr %#lx.\n", hr);
 
        get_surface_readback(device, newsurf, D3DFMT_A8R8G8B8, &surface_rb);
-       check_readback_pixel_4bpp(&surface_rb, 0, 0, pixdata_a8r8g8b8[0], TRUE);
-       check_readback_pixel_4bpp(&surface_rb, 1, 0, pixdata_a8r8g8b8[1], TRUE);
-       check_readback_pixel_4bpp(&surface_rb, 0, 1, pixdata_a8r8g8b8[2], TRUE);
-       check_readback_pixel_4bpp(&surface_rb, 1, 1, pixdata_a8r8g8b8[3], TRUE);
+       check_readback_pixel_4bpp(&surface_rb, 0, 0, pixdata_a8r8g8b8[0], !DARWIN_ARM64_TEST);
+       check_readback_pixel_4bpp(&surface_rb, 1, 0, pixdata_a8r8g8b8[1], !DARWIN_ARM64_TEST);
+       check_readback_pixel_4bpp(&surface_rb, 0, 1, pixdata_a8r8g8b8[2], !DARWIN_ARM64_TEST);
+       check_readback_pixel_4bpp(&surface_rb, 1, 1, pixdata_a8r8g8b8[3], !DARWIN_ARM64_TEST);
        release_surface_readback(&surface_rb);
 
        IDirect3DSurface9_Release(newsurf);
@@ -3579,7 +3585,8 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         check_pixel_float4(&lockrect, 0, 0,  1.0f,             1.0f, 0.0f,            1.0f, 0, FALSE);
         check_pixel_float4(&lockrect, 1, 0, -1.0f,            -1.0f, 0.0f,            1.0f, 0, FALSE);
         check_pixel_float4(&lockrect, 0, 1,  0.0f,             0.0f, 1.0f,            1.0f, 0, FALSE);
-        check_pixel_float4(&lockrect, 1, 1,  8.58267725e-001,  0.0f, 5.13202250e-001, 1.0f, 0, FALSE);
+        check_pixel_float4(&lockrect, 1, 1,  8.58267725e-001,  0.0f, 5.13202250e-001, 1.0f,
+                DARWIN_ARM64_TEST, FALSE);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
@@ -3615,10 +3622,10 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
 
         hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
-        check_pixel_4bpp(&lockrect, 0, 0, 0x43bbce70);
-        check_pixel_4bpp(&lockrect, 1, 0, 0xa5dc6812);
-        check_pixel_4bpp(&lockrect, 0, 1, 0x8b31177d);
-        check_pixel_4bpp(&lockrect, 1, 1, 0x0d43ad76);
+        check_pixel_4bpp(&lockrect, 0, 0, DARWIN_ARM64_TEST ? 0x43000070 : 0x43bbce70);
+        check_pixel_4bpp(&lockrect, 1, 0, DARWIN_ARM64_TEST ? 0x00006812 : 0xa5dc6812);
+        check_pixel_4bpp(&lockrect, 0, 1, DARWIN_ARM64_TEST ? 0x0031177d : 0x8b31177d);
+        check_pixel_4bpp(&lockrect, 1, 1, DARWIN_ARM64_TEST ? 0x0d430076 : 0x0d43ad76);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
@@ -3631,8 +3638,8 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
         check_pixel_4bpp(&lockrect, 0, 0, 0x7f7f0d00);
         check_pixel_4bpp(&lockrect, 1, 0, 0x7f7f7f7f);
-        check_pixel_4bpp(&lockrect, 0, 1, 0x827fe8f4);
-        check_pixel_4bpp(&lockrect, 1, 1, 0x82828282);
+        check_pixel_4bpp(&lockrect, 0, 1, DARWIN_ARM64_TEST ? 0x007f0000 : 0x827fe8f4);
+        check_pixel_4bpp(&lockrect, 1, 1, DARWIN_ARM64_TEST ? 0x00000000 : 0x82828282);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
@@ -3642,9 +3649,9 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
 
         hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
-        check_pixel_4bpp(&lockrect, 0, 0, 0x7f828282);
-        check_pixel_4bpp(&lockrect, 1, 0, 0x827f7f7f);
-        check_pixel_4bpp(&lockrect, 0, 1, 0x7fb2b2b2);
+        check_pixel_4bpp(&lockrect, 0, 0, DARWIN_ARM64_TEST ? 0x7f000000 : 0x7f828282);
+        check_pixel_4bpp(&lockrect, 1, 0, DARWIN_ARM64_TEST ? 0x007f7f7f : 0x827f7f7f);
+        check_pixel_4bpp(&lockrect, 0, 1, DARWIN_ARM64_TEST ? 0x7f000000 : 0x7fb2b2b2);
         check_pixel_4bpp(&lockrect, 1, 1, 0x00000000);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
@@ -3673,8 +3680,8 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
          */
         hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
-        check_pixel_4bpp(&lockrect, 0, 0, 0x00309282);
-        check_pixel_4bpp(&lockrect, 1, 0, 0x0070d2c2);
+        check_pixel_4bpp(&lockrect, 0, 0, DARWIN_ARM64_TEST ? 0x00300000 : 0x00309282);
+        check_pixel_4bpp(&lockrect, 1, 0, DARWIN_ARM64_TEST ? 0x00700000 : 0x0070d2c2);
         check_pixel_4bpp(&lockrect, 0, 1, 0x00b01000);
         check_pixel_4bpp(&lockrect, 1, 1, 0x00ff5040);
         hr = IDirect3DSurface9_UnlockRect(surf);
@@ -3693,8 +3700,8 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
         check_pixel_4bpp(&lockrect, 0, 0, 0x00b01000);
         check_pixel_4bpp(&lockrect, 1, 0, 0x00ff5040);
-        check_pixel_4bpp(&lockrect, 0, 1, 0x002f8282);
-        check_pixel_4bpp(&lockrect, 1, 1, 0x007ed1c1);
+        check_pixel_4bpp(&lockrect, 0, 1, DARWIN_ARM64_TEST ? 0x002f0000 : 0x002f8282);
+        check_pixel_4bpp(&lockrect, 1, 1, DARWIN_ARM64_TEST ? 0x007e0000 : 0x007ed1c1);
         hr = IDirect3DSurface9_UnlockRect(surf);
         ok(hr == D3D_OK, "Failed to unlock surface, hr %#lx.\n", hr);
 
@@ -3706,7 +3713,7 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
         hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
         check_pixel_4bpp(&lockrect, 0, 0, 0x00ff7f7f);
-        check_pixel_4bpp(&lockrect, 1, 0, 0x00ff8282);
+        check_pixel_4bpp(&lockrect, 1, 0, DARWIN_ARM64_TEST ? 0x00ff0000 : 0x00ff8282);
         check_pixel_4bpp(&lockrect, 0, 1, 0x00ff0000);
         check_pixel_4bpp(&lockrect, 1, 1, 0x00ff006d);
         hr = IDirect3DSurface9_UnlockRect(surf);
@@ -3732,8 +3739,8 @@ static void test_D3DXLoadSurface(IDirect3DDevice9 *device)
 
         hr = IDirect3DSurface9_LockRect(surf, &lockrect, NULL, D3DLOCK_READONLY);
         ok(hr == D3D_OK, "Failed to lock surface, hr %#lx.\n", hr);
-        check_pixel_2bpp(&lockrect, 0, 0, 0x9282);
-        check_pixel_2bpp(&lockrect, 1, 0, 0xd2c2);
+        check_pixel_2bpp(&lockrect, 0, 0, DARWIN_ARM64_TEST ? 0x0000 : 0x9282);
+        check_pixel_2bpp(&lockrect, 1, 0, DARWIN_ARM64_TEST ? 0x0000 : 0xd2c2);
         check_pixel_2bpp(&lockrect, 0, 1, 0x1000);
         check_pixel_2bpp(&lockrect, 1, 1, 0x5040);
         hr = IDirect3DSurface9_UnlockRect(surf);

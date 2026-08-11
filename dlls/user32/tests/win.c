@@ -9920,6 +9920,149 @@ static void test_layered_child_window_parent_move(void)
     DeleteObject( brush );
 }
 
+/* a child window that draws nothing of its own: its contents are painted once,
+ * from outside its window proc, and have to survive whatever happens to it. */
+static LRESULT CALLBACK preserved_child_proc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp )
+{
+    switch (msg)
+    {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT:
+    {
+        PAINTSTRUCT ps;
+        BeginPaint( hwnd, &ps );
+        EndPaint( hwnd, &ps );
+        return 0;
+    }
+    }
+    return DefWindowProcA( hwnd, msg, wp, lp );
+}
+
+/* Moving a window moves the pixels of its ordinary, non-layered children with
+ * it, and those children keep showing their own contents - not the contents of
+ * whatever they used to be on top of, and not nothing at all.  This holds both
+ * for a child that repaints itself when it is asked to and for one whose
+ * contents were painted once and are only preserved. */
+static void test_child_window_parent_move( BOOL repaint )
+{
+    static const COLORREF parent_color = RGB( 0x21, 0x43, 0x65 );
+    static const COLORREF child_color = RGB( 0x20, 0x40, 0xc0 );
+    const char *parent_class = repaint ? "ChildMoveParentClassR" : "ChildMoveParentClassP";
+    const char *child_class = repaint ? "ChildMoveChildClassR" : "ChildMoveChildClassP";
+    COLORREF before_child, before_parent, opaque, background, vacated;
+    HINSTANCE inst = GetModuleHandleA( 0 );
+    HBRUSH parent_brush, child_brush;
+    ATOM parent_atom = 0, child_atom = 0;
+    POINT dst = {0, 0}, moved = {0, 0};
+    HWND parent = 0, child = 0;
+    WNDCLASSA class = {0};
+    RECT rect;
+    HDC dc;
+    BOOL ret;
+
+    winetest_push_context( repaint ? "repainting child" : "preserved child" );
+
+    parent_brush = CreateSolidBrush( parent_color );
+    child_brush = CreateSolidBrush( child_color );
+    ok( !!parent_brush && !!child_brush, "Failed to create brushes, error %lu\n", GetLastError() );
+    if (!parent_brush || !child_brush) goto done;
+
+    class.lpfnWndProc = DefWindowProcA;
+    class.hInstance = inst;
+    class.hbrBackground = parent_brush;
+    class.lpszClassName = parent_class;
+    parent_atom = RegisterClassA( &class );
+    ok( !!parent_atom, "Failed to register parent class, error %lu\n", GetLastError() );
+    if (!parent_atom) goto done;
+
+    memset( &class, 0, sizeof(class) );
+    class.lpfnWndProc = repaint ? DefWindowProcA : preserved_child_proc;
+    class.hInstance = inst;
+    class.hbrBackground = repaint ? child_brush : 0;
+    class.lpszClassName = child_class;
+    child_atom = RegisterClassA( &class );
+    ok( !!child_atom, "Failed to register child class, error %lu\n", GetLastError() );
+    if (!child_atom) goto done;
+
+    flush_events( TRUE );
+
+    parent = CreateWindowExA( WS_EX_TOPMOST, parent_class, "child move parent",
+                              WS_POPUP | WS_VISIBLE, 320, 260, 80, 40,
+                              0, 0, 0, NULL );
+    ok( !!parent, "Failed to create parent, error %lu\n", GetLastError() );
+    if (!parent) goto done;
+
+    child = CreateWindowExA( 0, child_class, "child", WS_CHILD | WS_VISIBLE,
+                             10, 10, 40, 20, parent, 0, 0, NULL );
+    ok( !!child, "Failed to create child, error %lu\n", GetLastError() );
+    if (!child) goto done;
+
+    ret = UpdateWindow( parent );
+    ok( ret, "UpdateWindow failed, error %lu\n", GetLastError() );
+    flush_events( TRUE );
+
+    if (!repaint)
+    {
+        /* the child's window proc never draws this again */
+        ret = GetClientRect( child, &rect );
+        ok( ret, "GetClientRect failed, error %lu\n", GetLastError() );
+        dc = GetDC( child );
+        ok( !!dc, "GetDC failed, error %lu\n", GetLastError() );
+        FillRect( dc, &rect, child_brush );
+        ReleaseDC( child, dc );
+    }
+    flush_events( TRUE );
+
+    dst.x = 10;
+    dst.y = 10;
+    ret = ClientToScreen( parent, &dst );
+    ok( ret, "ClientToScreen failed, error %lu\n", GetLastError() );
+
+    dc = GetDC( 0 );
+    before_child = GetPixel( dc, dst.x + 20, dst.y + 10 );
+    before_parent = GetPixel( dc, dst.x - 5, dst.y - 5 );
+    ReleaseDC( 0, dc );
+    ok( before_child == child_color, "Expected the child to show %#lx before the move, got %#lx\n",
+        child_color, before_child );
+    ok( before_parent == parent_color, "Expected the parent to show %#lx before the move, got %#lx\n",
+        parent_color, before_parent );
+
+    /* the child keeps its position within the parent, the parent moves under it.
+     * Nothing is invalidated by hand: moving a window is enough to make the
+     * whole of it, children included, show up at its new position. */
+    ret = SetWindowPos( parent, 0, 500, 400, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE );
+    ok( ret, "SetWindowPos failed, error %lu\n", GetLastError() );
+    flush_events( TRUE );
+
+    ret = ClientToScreen( parent, &moved );
+    ok( ret, "ClientToScreen failed, error %lu\n", GetLastError() );
+    ok( moved.x == 500 && moved.y == 400, "Unexpected parent client origin %ld,%ld\n",
+        moved.x, moved.y );
+
+    dc = GetDC( 0 );
+    background = GetPixel( dc, moved.x + 5, moved.y + 5 );
+    opaque = GetPixel( dc, moved.x + 30, moved.y + 20 );
+    vacated = GetPixel( dc, dst.x + 20, dst.y + 10 );
+    ReleaseDC( 0, dc );
+
+    ok( background == parent_color, "Expected the moved parent to show %#lx next to its child, got %#lx\n",
+        parent_color, background );
+    ok( opaque == child_color, "Expected the child to follow its parent and show %#lx, got %#lx\n",
+        child_color, opaque );
+    ok( vacated != child_color, "Expected the child to leave its old position, still got %#lx\n",
+        vacated );
+
+done:
+    if (child) DestroyWindow( child );
+    if (parent) DestroyWindow( parent );
+    if (child_atom) UnregisterClassA( child_class, inst );
+    if (parent_atom) UnregisterClassA( parent_class, inst );
+    DeleteObject( child_brush );
+    DeleteObject( parent_brush );
+    winetest_pop_context();
+}
+
 static MONITORINFO mi;
 
 static LRESULT CALLBACK fullscreen_wnd_proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
@@ -15070,6 +15213,8 @@ START_TEST(win)
 
     /* before the other tests fill the screen with windows they leave behind */
     test_layered_child_window_parent_move();
+    test_child_window_parent_move( TRUE );
+    test_child_window_parent_move( FALSE );
 
     hwndMain = CreateWindowExA(/*WS_EX_TOOLWINDOW*/ 0, "MainWindowClass", "Main window",
                                WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |

@@ -1094,7 +1094,7 @@ HANDLE WINAPI CryptCATOpen(WCHAR *filename, DWORD flags, HCRYPTPROV hProv,
 {
     HANDLE file, hmsg;
     BYTE *buffer = NULL;
-    DWORD size, open_mode = OPEN_ALWAYS;
+    DWORD access = GENERIC_READ, size, open_mode = OPEN_ALWAYS;
     struct cryptcat *cc;
     BOOL valid;
 
@@ -1112,9 +1112,12 @@ HANDLE WINAPI CryptCATOpen(WCHAR *filename, DWORD flags, HCRYPTPROV hProv,
     if (flags == CRYPTCAT_OPEN_EXISTING)
         open_mode = OPEN_EXISTING;
     if (flags & CRYPTCAT_OPEN_CREATENEW)
+    {
+        access |= GENERIC_WRITE;
         open_mode = CREATE_ALWAYS;
+    }
 
-    file = CreateFileW(filename, GENERIC_READ, FILE_SHARE_READ, NULL, open_mode, 0, NULL);
+    file = CreateFileW(filename, access, FILE_SHARE_READ, NULL, open_mode, 0, NULL);
     if (file == INVALID_HANDLE_VALUE) return INVALID_HANDLE_VALUE;
 
     size = GetFileSize(file, NULL);

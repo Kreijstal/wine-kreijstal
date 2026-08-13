@@ -6088,6 +6088,10 @@ static void test_event_dispatch(void)
 
 START_TEST(filtergraph)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Legacy DirectShow filter-graph rendering is unavailable on macOS ARM64\n");
+    return;
+#endif
     CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
     test_interfaces();

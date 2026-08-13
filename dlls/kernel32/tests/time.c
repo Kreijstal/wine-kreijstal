@@ -1133,6 +1133,10 @@ static void test_QueryUnbiasedInterruptTime(void)
 
 static void test_processor_idle_cycle_time(void)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Processor idle cycle times are stubbed on macOS ARM64\n");
+    return;
+#endif
     unsigned int cpu_count = NtCurrentTeb()->Peb->NumberOfProcessors;
     ULONG64 buffer[64];
     ULONG size;

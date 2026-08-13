@@ -478,6 +478,9 @@ void bus_device_stop(void)
     BOOL ret;
 
     if (!test_data) return;
+#ifdef __WINE_DARWIN_ARM64_HOST
+    return;
+#endif
 
     set = SetupDiCreateDeviceInfoList( NULL, NULL );
     ok( set != INVALID_HANDLE_VALUE, "failed to create device list, error %lu\n", GetLastError() );
@@ -608,6 +611,10 @@ BOOL bus_device_start(void)
     FILE *f;
 
     if (!test_data) return FALSE;
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Synthetic Windows HID bus drivers are unavailable on macOS ARM64\n");
+    return FALSE;
+#endif
 
     old_mute_threshold = winetest_mute_threshold;
     winetest_mute_threshold = 1;

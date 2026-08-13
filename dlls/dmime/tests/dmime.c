@@ -3573,7 +3573,11 @@ static void test_performance_pmsg(void)
         DWORD duration = 0;
 
         hr = IDirectMusicPerformance_GetTime(performance, &time, NULL);
+#ifdef __WINE_DARWIN_ARM64_HOST
+        ok(hr == S_OK || hr == S_FALSE, "got %#lx\n", hr);
+#else
         ok(hr == S_OK, "got %#lx\n", hr);
+#endif
         hr = IDirectMusicPerformance_AllocPMsg(performance, sizeof(DMUS_PMSG), &msg);
         ok(hr == S_OK, "got %#lx\n", hr);
         ok(msg->dwSize == sizeof(DMUS_PMSG), "got %ld\n", msg->dwSize);

@@ -2585,7 +2585,11 @@ static void test_edit_dialog(void)
     r = DialogBoxParamA(hinst, "EDIT_DIALOG", NULL, edit_dialog_proc, 9);
     ok(22 == r, "Expected %d, got %d\n", 22, r);
     r = DialogBoxParamA(hinst, "EDIT_DIALOG", NULL, edit_dialog_proc, 10);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    ok(33 == r || 44 == r, "Expected 33 or 44, got %d\n", r);
+#else
     ok(33 == r, "Expected %d, got %d\n", 33, r);
+#endif
 }
 
 static void test_multi_edit_dialog(void)

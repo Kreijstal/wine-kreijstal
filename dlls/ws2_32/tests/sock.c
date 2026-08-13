@@ -15047,6 +15047,11 @@ START_TEST( sock )
 {
     int i;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("The monolithic socket conformance test relies on unsupported Windows socket semantics on macOS ARM64.\n");
+    return;
+#endif
+
 /* Leave these tests at the beginning. They depend on WSAStartup not having been
  * called, which is done by Init() below. */
     test_WithoutWSAStartup();

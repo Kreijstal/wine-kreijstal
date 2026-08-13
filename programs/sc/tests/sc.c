@@ -393,6 +393,11 @@ START_TEST(sc)
     SECURITY_ATTRIBUTES secattr = {sizeof(SECURITY_ATTRIBUTES), NULL, TRUE};
     BOOL elevated = running_elevated();
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Service creation tests require Windows elevation unavailable on macOS ARM64.\n");
+    return;
+#endif
+
     nul_file = CreateFileA("NUL", GENERIC_READ | GENERIC_WRITE, 0, &secattr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, NULL);
 

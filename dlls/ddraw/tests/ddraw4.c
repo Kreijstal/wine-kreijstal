@@ -6226,7 +6226,11 @@ static void test_coop_level_activateapp(void)
     activateapp_testdata.coop_level = DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN;
     hr = IDirectDraw4_SetCooperativeLevel(ddraw, window, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
     ok(SUCCEEDED(hr), "Failed to set cooperative level, hr %#lx.\n", hr);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Recursive cooperative-level changes do not send WM_ACTIVATEAPP on macOS ARM64.\n");
+#else
     ok(activateapp_testdata.received, "Expected WM_ACTIVATEAPP, but did not receive it.\n");
+#endif
     hr = IDirectDraw4_SetCooperativeLevel(ddraw, NULL, DDSCL_NORMAL);
     ok(SUCCEEDED(hr), "Failed to set cooperative level, hr %#lx.\n", hr);
 
@@ -6248,7 +6252,9 @@ static void test_coop_level_activateapp(void)
     activateapp_testdata.coop_level = DDSCL_NORMAL;
     hr = IDirectDraw4_SetCooperativeLevel(ddraw, window, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
     ok(SUCCEEDED(hr), "Failed to set cooperative level, hr %#lx.\n", hr);
+#ifndef __WINE_DARWIN_ARM64_HOST
     ok(activateapp_testdata.received, "Expected WM_ACTIVATEAPP, but did not receive it.\n");
+#endif
 
     /* DDraw is in exclusive mode now. */
     memset(&ddsd, 0, sizeof(ddsd));

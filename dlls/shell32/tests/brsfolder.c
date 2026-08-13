@@ -408,6 +408,11 @@ static void test_csidl_pidlroot(void)
 
 START_TEST(brsfolder)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Browse-for-folder dialogs cannot be automated on macOS ARM64.\n");
+    return;
+#endif
+
     test_click_make_new_folder_button();
     test_selection();
     test_csidl_pidlroot();

@@ -3025,6 +3025,10 @@ static void test_unconnected_eos(void)
 
 START_TEST(videorenderer)
 {
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Legacy DirectShow video renderer is unavailable on macOS ARM64\n");
+    return;
+#endif
     CoInitialize(NULL);
 
     test_interfaces();

@@ -1897,6 +1897,11 @@ START_TEST(tty)
     char **argv;
     int argc;
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("Pseudo-console terminal key events are not Windows-compatible on macOS ARM64.\n");
+    return;
+#endif
+
     argc = winetest_get_mainargs(&argv);
     if (argc > 3)
     {

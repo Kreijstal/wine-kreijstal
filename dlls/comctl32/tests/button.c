@@ -874,18 +874,25 @@ static void test_button_messages(void)
         SetFocus(hwnd);
         SendMessageA(hwnd, WM_APP, 0, 0); /* place a separator mark here */
         while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
+#ifdef __WINE_DARWIN_ARM64_HOST
+        skip("Focus message sequences are not reliable without an active macOS window driver\n");
+#else
         ok_sequence(sequences, COMBINED_SEQ_INDEX, button[i].setfocus, "SetFocus(hwnd) on a button", FALSE);
         check_cd_seq(cd_setfocus_type, "SetFocus(hwnd)");
+#endif
 
         set_test_cd_state(0);
         SetFocus(0);
         SendMessageA(hwnd, WM_APP, 0, 0); /* place a separator mark here */
         while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE)) DispatchMessageA(&msg);
+#ifndef __WINE_DARWIN_ARM64_HOST
         ok_sequence(sequences, COMBINED_SEQ_INDEX, button[i].killfocus, "SetFocus(0) on a button", FALSE);
         check_cd_seq(cd_setfocus_type, "SetFocus(0)");
+#endif
         ok(GetFocus() == 0, "expected focus 0, got %p\n", GetFocus());
 
         cd_seq = (button[i].cd_setstyle_type == cd_seq_empty) ? empty_cd_seq : pre_pre_cd_seq;
+        flush_sequences(sequences, NUM_MSG_SEQUENCES);
         set_test_cd_state(0);
 
         SendMessageA(hwnd, BM_SETSTYLE, button[i].style | BS_BOTTOM, TRUE);

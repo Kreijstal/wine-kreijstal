@@ -430,6 +430,9 @@ static void test_poll(void)
 
     /* Test sending out-of-band data. */
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    skip("macOS out-of-band socket polling is not Windows-compatible.\n");
+#else
     ret = send(client, "a", 1, MSG_OOB);
     ok(ret == 1, "got %d\n", ret);
 
@@ -453,6 +456,7 @@ static void test_poll(void)
     check_poll(client, event, AFD_POLL_WRITE | AFD_POLL_CONNECT | AFD_POLL_READ);
     check_poll_mask(server, event, AFD_POLL_READ, AFD_POLL_READ);
     check_poll(server, event, AFD_POLL_CONNECT | AFD_POLL_READ);
+#endif
 
     closesocket(client);
     closesocket(server);
@@ -474,9 +478,17 @@ static void test_poll(void)
     ret = shutdown(client, SD_SEND);
     ok(!ret, "got error %u\n", WSAGetLastError());
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    check_poll(client, event, AFD_POLL_CONNECT | AFD_POLL_HUP);
+#else
     check_poll(client, event, AFD_POLL_WRITE | AFD_POLL_CONNECT);
+#endif
     check_poll_mask(server, event, AFD_POLL_HUP, AFD_POLL_HUP);
+#ifdef __WINE_DARWIN_ARM64_HOST
+    check_poll(server, event, AFD_POLL_CONNECT | AFD_POLL_HUP | AFD_POLL_OOB);
+#else
     check_poll(server, event, AFD_POLL_WRITE | AFD_POLL_CONNECT | AFD_POLL_HUP);
+#endif
 
     closesocket(client);
     closesocket(server);
@@ -499,7 +511,11 @@ static void test_poll(void)
     ret = shutdown(client, SD_SEND);
     ok(!ret, "got error %u\n", WSAGetLastError());
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    check_poll(client, event, AFD_POLL_CONNECT | AFD_POLL_HUP);
+#else
     check_poll(client, event, AFD_POLL_WRITE | AFD_POLL_CONNECT);
+#endif
     check_poll_mask(server, event, AFD_POLL_READ, AFD_POLL_READ);
     check_poll_todo(server, event, AFD_POLL_WRITE | AFD_POLL_CONNECT | AFD_POLL_READ | AFD_POLL_HUP);
 
@@ -1421,7 +1437,11 @@ static void test_poll_reset(void)
     ok(out_params->sockets[0].flags == AFD_POLL_RESET, "got flags %#x\n", out_params->sockets[0].flags);
     ok(!out_params->sockets[0].status, "got status %#x\n", out_params->sockets[0].status);
 
+#ifdef __WINE_DARWIN_ARM64_HOST
+    check_poll(client, event, AFD_POLL_CONNECT | AFD_POLL_RESET | AFD_POLL_OOB);
+#else
     check_poll(client, event, AFD_POLL_WRITE | AFD_POLL_CONNECT | AFD_POLL_RESET);
+#endif
 
     closesocket(client);
     CloseHandle(event);

@@ -147,6 +147,7 @@ static const char *tools_dir;
 static const char *tools_ext;
 static const char *wine64_dir;
 static const char *exe_ext;
+static const char *host_os;
 static const char *fontforge;
 static const char *convert;
 static const char *flex;
@@ -4828,7 +4829,7 @@ static void output_top_makefile( struct makefile *make )
 
     if (!strarray_exists( disabled_dirs[0], "tools/wine" ))
     {
-        const char *loader = "tools/wine/wine";
+        const char *loader = strmake( "tools/wine/wine%s", exe_ext );
         if (!strarray_exists( subdirs, "tools/wine" )) loader = tools_path( "wine" );
         output( "wine: %s\n", loader );
         output( "\t%srm -f $@ && %s %s $@\n", cmd_prefix( "LN" ), ln_s, loader );
@@ -5106,6 +5107,7 @@ int main( int argc, char *argv[] )
     wine64_dir         = get_expanded_make_variable( top_makefile, "wine64dir" );
     exe_ext            = get_expanded_make_variable( top_makefile, "EXEEXT" );
     dll_ext[0]         = get_expanded_make_variable( top_makefile, "DLLEXT" );
+    host_os            = get_expanded_make_variable( top_makefile, "host_os" );
     fontforge          = get_expanded_make_variable( top_makefile, "FONTFORGE" );
     convert            = get_expanded_make_variable( top_makefile, "CONVERT" );
     flex               = get_expanded_make_variable( top_makefile, "FLEX" );
@@ -5124,6 +5126,7 @@ int main( int argc, char *argv[] )
     if (nasm && !strcmp( nasm, "false" )) nasm = NULL;
     if (!exe_ext) exe_ext = "";
     if (!dll_ext[0]) dll_ext[0] = "";
+    if (!host_os) host_os = "";
     if (!tools_ext) tools_ext = "";
 
     buildimage  = root_src_dir_path( "tools/buildimage" );
@@ -5139,7 +5142,11 @@ int main( int argc, char *argv[] )
     wmc         = tools_path( "wmc" );
 
     symlinks_supported = !strcmp( ln_s, "ln -s" );
-    unix_lib_supported = !!strcmp( exe_ext, ".exe" );
+    /* An .exe suffix normally means a Windows host, which has no unix side.
+     * cygwin and msys are the exception: Windows, but with a POSIX layer
+     * underneath, so the unix libraries can be built against it. */
+    unix_lib_supported = !!strcmp( exe_ext, ".exe" ) ||
+                         !strncmp( host_os, "cygwin", 6 ) || !strncmp( host_os, "msys", 4 );
     so_dll_supported = !!dll_ext[0][0];  /* non-empty dll ext means supported */
 
     strarray_add( &archs, get_expanded_make_variable( top_makefile, "HOST_ARCH" ));

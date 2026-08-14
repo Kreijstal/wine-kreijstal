@@ -172,7 +172,7 @@ m4_set_add_all([_AC_SUBST_VARS],[HOST_ARCH]m4_foreach([cpu],[aarch64,arm,arm64ec
 dnl Some special cases for the Windows platform
 
 case $build_os in
-  cygwin*|mingw32*) AC_SUBST(toolsext,".exe") ;;
+  cygwin*|mingw32*|msys*) AC_SUBST(toolsext,".exe") ;;
   *) AC_SUBST(toolsext,"") ;;
 esac
 
@@ -972,7 +972,14 @@ WINE_PATH_SONAME_TOOLS
 WINE_CONFIG_HELPERS
 
 case $host_os in
-  cygwin*|mingw32*)
+  cygwin*|msys*)
+    LIBEXT="dll"
+    DLLEXT=""
+    dnl cygwin's newlib hides asprintf() and friends behind _GNU_SOURCE
+    AC_DEFINE(_GNU_SOURCE,1,[Define to 1 to enable GNU extensions on Linux])
+    ;;
+
+  mingw32*)
     LIBEXT="dll"
     DLLEXT=""
     ;;

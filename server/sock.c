@@ -4230,6 +4230,7 @@ static MIB_TCP_STATE get_tcp_socket_state( int fd )
     #define tcp_info tcp_connection_info
 #endif
 
+#ifdef TCP_INFO
     struct tcp_info info;
     socklen_t info_len = sizeof(info);
     if (getsockopt( fd, IPPROTO_TCP, TCP_INFO, &info, &info_len ) == 0)
@@ -4237,6 +4238,10 @@ static MIB_TCP_STATE get_tcp_socket_state( int fd )
 
     if (debug_level)
         fprintf( stderr, "getsockopt TCP_INFO failed: %s\n", strerror( errno ) );
+#else
+    /* cygwin has no TCP_INFO; report the same state the failure path does */
+    (void)fd;
+#endif
 
     return MIB_TCP_STATE_ESTAB;
 }

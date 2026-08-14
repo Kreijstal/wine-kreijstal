@@ -6503,7 +6503,7 @@ esac
 
 
 case $build_os in
-  cygwin*|mingw32*) toolsext=".exe"
+  cygwin*|mingw32*|msys*) toolsext=".exe"
  ;;
   *) toolsext=""
  ;;
@@ -12344,7 +12344,15 @@ wine_fn_config_makefile ()
 }
 
 case $host_os in
-  cygwin*|mingw32*)
+  cygwin*|msys*)
+    LIBEXT="dll"
+    DLLEXT=""
+
+printf '%s\n' "#define _GNU_SOURCE 1" >>confdefs.h
+
+    ;;
+
+  mingw32*)
     LIBEXT="dll"
     DLLEXT=""
     ;;

@@ -364,6 +364,45 @@ static inline const WORD *SS_sig_ptr( const ucontext_t *context )
 
 #define XState_sig(context)  NULL
 
+#elif defined(__CYGWIN__)
+
+/* cygwin's mcontext is a Win32 CONTEXT with two extra fields, so the registers
+ * map straight across, and its struct _fpstate is the same 512-byte FXSAVE
+ * layout as CONTEXT.FltSave.
+ *
+ * The trap number and the page-fault error code are the exception: they live in
+ * the NT exception record, which the POSIX signal layer does not pass through.
+ * Reporting 0 for both keeps this compiling, but it makes every fault look like
+ * a divide-by-zero to the dispatcher, so this is the first thing to revisit
+ * before any of it can actually run.
+ */
+#define RAX_sig(context)     ((context)->uc_mcontext.rax)
+#define RBX_sig(context)     ((context)->uc_mcontext.rbx)
+#define RCX_sig(context)     ((context)->uc_mcontext.rcx)
+#define RDX_sig(context)     ((context)->uc_mcontext.rdx)
+#define RSI_sig(context)     ((context)->uc_mcontext.rsi)
+#define RDI_sig(context)     ((context)->uc_mcontext.rdi)
+#define RBP_sig(context)     ((context)->uc_mcontext.rbp)
+#define R8_sig(context)      ((context)->uc_mcontext.r8)
+#define R9_sig(context)      ((context)->uc_mcontext.r9)
+#define R10_sig(context)     ((context)->uc_mcontext.r10)
+#define R11_sig(context)     ((context)->uc_mcontext.r11)
+#define R12_sig(context)     ((context)->uc_mcontext.r12)
+#define R13_sig(context)     ((context)->uc_mcontext.r13)
+#define R14_sig(context)     ((context)->uc_mcontext.r14)
+#define R15_sig(context)     ((context)->uc_mcontext.r15)
+#define CS_sig(context)      ((context)->uc_mcontext.cs)
+#define GS_sig(context)      ((context)->uc_mcontext.gs)
+#define FS_sig(context)      ((context)->uc_mcontext.fs)
+#define SS_sig(context)      ((context)->uc_mcontext.ss)
+#define RSP_sig(context)     ((context)->uc_mcontext.rsp)
+#define RIP_sig(context)     ((context)->uc_mcontext.rip)
+#define EFL_sig(context)     ((context)->uc_mcontext.eflags)
+#define TRAP_sig(context)    (0)
+#define ERROR_sig(context)   (0)
+#define FPU_sig(context)     ((void *)&(context)->uc_mcontext.fpregs)
+#define XState_sig(fpu)      NULL
+
 #else
 #error You must define the signal context functions for your platform
 #endif
@@ -723,6 +762,10 @@ static NTSTATUS dwarf_virtual_unwind( ULONG64 ip, ULONG64 *frame,CONTEXT *contex
  */
 NTSTATUS unwind_builtin_dll( void *args )
 {
+#ifdef __CYGWIN__
+    (void)args;
+    return STATUS_UNSUCCESSFUL;
+#else
     struct unwind_builtin_dll_params *params = args;
     DISPATCHER_CONTEXT *dispatch = params->dispatch;
     CONTEXT *context = params->context;
@@ -733,6 +776,7 @@ NTSTATUS unwind_builtin_dll( void *args )
         return dwarf_virtual_unwind( context->Rip, &dispatch->EstablisherFrame, context, fde,
                                      &bases, &dispatch->LanguageHandler, &dispatch->HandlerData );
     return STATUS_UNSUCCESSFUL;
+#endif
 }
 
 
@@ -2888,6 +2932,13 @@ void init_syscall_frame( LPTHREAD_START_ROUTINE entry, void *arg, TEB *teb )
     sysarch( X86_64_SET_GSBASE, &teb );
 #elif defined (__APPLE__)
     thread_data->pthread_teb = mac_thread_gsbase();
+#elif defined(__CYGWIN__)
+    /* There is no arch_prctl equivalent here, and nothing to point %gs at:
+     * cygwin runs as an ordinary Windows process, so %gs already holds the
+     * Windows TEB that msys-2.0.dll and the NT loader below it depend on.
+     * Repointing it would break both.  The unix library therefore compiles,
+     * but cannot yet host a thread -- giving Wine its own TEB register is the
+     * central unsolved problem of running this on cygwin/msys. */
 #else
 # error Please define setting %gs for your architecture
 #endif

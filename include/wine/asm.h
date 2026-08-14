@@ -51,7 +51,7 @@
 # define __ASM_SEH(str)
 #endif
 
-#ifdef __WINE_PE_BUILD
+#if defined(__WINE_PE_BUILD) || defined(__CYGWIN__)  /* cygwin assembles to COFF */
 # define __ASM_FUNC_TYPE(name) ".def " name "\n\t.scl 2\n\t.type 32\n\t.endef"
 #elif defined(__APPLE__)
 # define __ASM_FUNC_TYPE(name) ""
@@ -63,7 +63,7 @@
 # define __ASM_FUNC_TYPE(name) ".type " name ",@function"
 #endif
 
-#ifdef __WINE_PE_BUILD
+#if defined(__WINE_PE_BUILD) || defined(__CYGWIN__)  /* cygwin assembles to COFF */
 # define __ASM_GLOBL(name) ".globl " name "\n" name ":"
 # define __ASM_FUNC_SIZE(name) ""
 #elif defined(__APPLE__)

@@ -38,7 +38,7 @@ jobs:
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
       - name: Restore ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: /home/builder/.cache/ccache
           key: arch-ccache-${{ github.ref_name }}-${{ github.sha }}
@@ -131,7 +131,7 @@ jobs:
             libunwind-dev libunwind-dev:i386
 
       - name: Restore ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}

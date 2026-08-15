@@ -29,7 +29,7 @@ jobs:
             base-devel git ccache sudo
 
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Prepare makepkg user
         run: |
@@ -82,7 +82,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Enable i386 packages
         run: |

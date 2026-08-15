@@ -57,7 +57,7 @@ jobs:
           sudo -u builder ccache --show-stats
 
       - name: Upload pacman package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wine-kreijstal-arch-pacman
           path: |
@@ -212,7 +212,7 @@ jobs:
           ccache --show-stats
 
       - name: Upload workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: wine-kreijstal-linux-wow64
           path: |

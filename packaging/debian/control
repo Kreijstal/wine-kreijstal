@@ -1,0 +1,10 @@
+Package: wine-kreijstal
+Version: 11.10
+Architecture: amd64
+Maintainer: Kreijstal <aur@users.noreply.github.com>
+Section: utils
+Priority: optional
+Provides: wine, wine-wow64
+Conflicts: wine, wine-staging, wine-git
+Description: Wine fork with Kreijstal patches
+ Wine is an Open Source implementation of the Windows API on top of Unix.

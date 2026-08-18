@@ -205,10 +205,20 @@ jobs:
       - name: Package artifact
         run: |
           short_sha="${GITHUB_SHA::12}"
-          name="wine-kreijstal-${GITHUB_REF_NAME}-${short_sha}-linux-wow64"
+          version="${GITHUB_REF_NAME#kreijstal-}"
+          if [ "$version" = "$GITHUB_REF_NAME" ]; then
+            version="11.10"
+          fi
+          deb_version="${version}-1+git${short_sha}"
+          deb_name="wine-kreijstal_${deb_version}_amd64"
+
+          mkdir -p package-root/DEBIAN
+          cat packaging/debian/control > package-root/DEBIAN/control
+          sed -i "s/^Version:.*/Version: ${deb_version}/" package-root/DEBIAN/control
+
           mkdir -p dist
-          tar -C package-root -cJf "dist/${name}.tar.xz" .
-          sha256sum "dist/${name}.tar.xz" > "dist/${name}.tar.xz.sha256"
+          dpkg-deb --build package-root "dist/${deb_name}.deb"
+          sha256sum "dist/${deb_name}.deb" > "dist/${deb_name}.deb.sha256"
           ccache --show-stats
 
       - name: Upload workflow artifact
@@ -216,7 +226,7 @@ jobs:
         with:
           name: wine-kreijstal-linux-wow64
           path: |
-            dist/*.tar.xz
+            dist/*.deb
             dist/*.sha256
           if-no-files-found: error
           retention-days: 14
@@ -226,6 +236,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/*.tar.xz
+            dist/*.deb
             dist/*.sha256
           generate_release_notes: true

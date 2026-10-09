@@ -12,7 +12,7 @@ permissions:
 jobs:
   build-arch-pacman:
     name: Arch pacman package
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 360
     container:
       image: archlinux:latest
@@ -77,7 +77,7 @@ jobs:
 
   build-linux-wow64:
     name: Linux WoW64 package
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 360
 
     steps:
